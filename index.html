@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; font-src 'self'; connect-src 'self' https://huggingface.co https://*.huggingface.co https://*.hf.co; worker-src 'self' blob:; base-uri 'none'; form-action 'none'; object-src 'none'">
+<meta name="referrer" content="no-referrer">
+<title>はらはちぶ</title>
+<meta name="description" content="食べた物のカロリーがすぐわかる、腹八分のための記録アプリ。記録はスマホの中だけ。">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="はらはちぶ">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#f5f7fb" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0e1624" media="(prefers-color-scheme: dark)">
+<link rel="stylesheet" href="fonts/zen-maru-gothic.css">
+<link rel="stylesheet" href="app.css">
+<script type="module" src="js/app.js"></script>
+</head>
+<body>
+<main id="view" tabindex="-1"></main>
+<nav id="tabs" class="tabs" aria-label="画面の切りかえ"></nav>
+<div id="toast" role="status" aria-live="polite"></div>
+<noscript><p style="padding:24px">はらはちぶを使うには JavaScript をオンにしてね。</p></noscript>
+</body>
+</html>
