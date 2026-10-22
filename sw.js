@@ -1,6 +1,6 @@
 /* オフラインでも開けるように、アプリ本体をスマホに保存する。
    記録そのものは扱わない（記録は localStorage / IndexedDB にあって、ここは通らない） */
-const CACHE = 'harahachibu-v1';
+const CACHE = 'harahachibu-v2';
 const FILES = [
   './', 'index.html', 'app.css', 'manifest.webmanifest', 'fonts/zen-maru-gothic.css',
   'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png',

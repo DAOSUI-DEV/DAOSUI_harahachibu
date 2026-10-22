@@ -3,7 +3,8 @@
 食べた物のカロリーがすぐわかって、食べ過ぎかどうかがひと目でわかる記録アプリ。iPhone の Safari で開いて「ホーム画面に追加」して使う（Web アプリ）。
 
 - 記録するとお茶碗が満ちていく。目安を超えるとあふれる（緑→黄→朱）
-- 食べ物の検索（日本食品標準成分表の全2,538食品＋料理・コンビニの目安）、写真から推定（スマホの中だけで判定）、袋の成分表示の入力、マイメニュー
+- 食べ物の検索（日本食品標準成分表の全2,538食品＋料理・コンビニ・商品の目安 約340品）、写真から推定（スマホの中だけで判定・約300種の候補・種類で絞り込み）、袋の成分表示の入力、マイメニュー
+- 写真つきで記録すると、その写真の特徴をスマホの中に覚えて、次から似た写真の時に「前に記録した物」として一番上に出す
 - 目標体重と期限から1日の目安を計算（安全装置つき）
 - カレンダー、体重・体脂肪のグラフ（傾向線と到達日の予想）、運動の記録、カロリー貯金（週の合計）
 - 次の食事の提案（コンビニの組み合わせ・自炊レシピ・外食のコツ）
@@ -14,7 +15,7 @@
 | --- | --- |
 | 記録の保存場所 | このスマホのブラウザの中だけ（localStorage と IndexedDB）。サーバーはない。ログインもない |
 | 外への通信 | アプリ本体の読み込み（GitHub Pages）と、写真判定のAIデータの初回ダウンロード（Hugging Face）だけ。Content-Security-Policy で、それ以外の通信先をブロック |
-| 写真 | 判定はスマホの中（Web Worker）で実行。保存する時は長い辺720pxに縮小し、位置情報などの付加情報（Exif）を消す |
+| 写真 | 判定はスマホの中（Web Worker）で実行。保存する時は長い辺720pxに縮小し、位置情報などの付加情報（Exif）を消す。「前に記録した物」のために覚えるのは写真の特徴（数字の列）だけで、スマホの中の IndexedDB に置く（設定から消せる） |
 | バックアップ | パスワードで暗号化した1つのファイル（PBKDF2-SHA256 60万回 → AES-GCM 256bit）。パスワードはどこにも保存しない |
 | 外部のスクリプト | 使わない（すべてこのリポジトリの中のファイル） |
 | リファラ | 送らない（no-referrer） |
@@ -41,12 +42,12 @@
 ## 出典・ライセンス
 
 - 食品の成分：日本食品標準成分表（八訂）増補2023年から引用（文部科学省）。`tools/make_foods.py` で Excel（第2章 データ）から `data/foods.json` を作成
-- 料理・コンビニ・レシピの値：成分表などをもとにした目安（店や作り方で変わる）
+- 料理・コンビニ・レシピの値：成分表などをもとにした目安（店や作り方で変わる）。カロリーメイト・カップヌードル・どん兵衛・赤いきつね・緑のたぬき・U.F.O.・ペヤング・ファミチキなどの商品は、商品の栄養成分表示の値（2026年10月時点で調べた値。リニューアルで変わることがある）
 - 運動のメッツ：国立健康・栄養研究所「改訂版 身体活動のメッツ（METs）表」を参考にした目安
 - [Transformers.js](https://github.com/huggingface/transformers.js)（Apache-2.0）：`vendor/transformers/transformers.LICENSE.txt`
 - [ONNX Runtime Web](https://github.com/microsoft/onnxruntime)（MIT）：`vendor/transformers/ONNXRUNTIME.LICENSE.txt`
   - `transformers.min.js` は npm の `@huggingface/transformers@4.3.1` の `dist/transformers.min.js`。GitHub の秘密情報チェックがクラス名 `Mistral3…Generation`（英数字32文字）を APIキーと誤検知するため、`tools/patch_vendor.py` でその名前だけ「文字列をつなぐ形」に書き換えている（動作は同じ。秘密情報は入っていない）
-- 写真判定のAI：OpenAI CLIP ViT-B/32（MIT）。[Xenova/clip-vit-base-patch32](https://huggingface.co/Xenova/clip-vit-base-patch32) を各スマホが初回にダウンロード（このリポジトリには含めない）
+- 写真判定のAI：Google SigLIP base patch16-224（Apache-2.0）。[Xenova/siglip-base-patch16-224](https://huggingface.co/Xenova/siglip-base-patch16-224) を各スマホが初回にダウンロード（このリポジトリには含めない。初回約230MB、準備後にスマホに残るのは約120MB）。1.0 では OpenAI CLIP ViT-B/32 を使っていたが、当たりにくかったので 1.1 で入れ替えた
 - フォント：Zen Maru Gothic（SIL Open Font License 1.1）：`fonts/OFL-zen-maru-gothic.txt`
 
 ## ファイル

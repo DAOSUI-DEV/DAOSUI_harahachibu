@@ -8,7 +8,7 @@ import { makeBackup, readBackup, restore, saveFile } from './backup.js';
 import { prepareUI } from './add.js';
 import { rerender } from './state.js';
 
-export const VERSION = '1.0.0';
+export const VERSION = '1.1.0';
 
 function radios(name, opts, cur, onPick) {
   const wrap = h('div', { class: 'chips', role: 'radiogroup', 'aria-label': name });
@@ -183,13 +183,17 @@ export async function renderSettings(root) {
   } else add(goal, h('p', { class: 'note', text: '身長・体重・目標体重・期限から、1日の目安を計算する' }), h('button', { class: 'btn primary wide', text: '目標を決める', on: { click: goalSheet } }));
 
   const aiBox = h('section', { class: 'side-block' }, h('h2', { text: '写真判定' }));
-  if (st.ai === 'ready') add(aiBox, h('p', { text: '準備できている。写真から料理の候補を出せる' }),
-    h('button', { class: 'btn ghost wide', text: 'AIのデータを消す（約105MB空く）', on: { click: async () => { if (await ask('AIのデータを消す', '写真判定が使えなくなる。また使う時は、もう一度ダウンロードがいる', '消す')) { await ai.remove(); toast('消した'); rerender(); } } } }));
+  if (ai.isReady()) add(aiBox, h('p', { text: '準備できている。写真から料理の候補を出せる' }),
+    h('button', { class: 'btn ghost wide', text: 'AIのデータを消す（約120MB空く）', on: { click: async () => { if (await ask('AIのデータを消す', '写真判定が使えなくなる。また使う時は、もう一度ダウンロードがいる（覚えた物は残る）', '消す')) { await ai.remove(); toast('消した'); rerender(); } } } }));
   else {
     const box = h('div', {});
-    add(aiBox, h('p', { text: '写真から料理の候補を出す機能。判定はスマホの中だけでして、写真は外に送らない' }), h('p', { class: 'note', text: ai.SIZE_NOTE }), box,
+    add(aiBox, h('p', { text: ai.isOld() ? '写真判定のAIを新しくした（前より当たりやすい）。使うにはもう一度準備がいる。前のAIのデータは準備の時に消える' : '写真から料理の候補を出す機能。判定はスマホの中だけでして、写真は外に送らない' }), h('p', { class: 'note', text: ai.SIZE_NOTE }), box,
       h('button', { class: 'btn primary wide', text: '写真判定を準備する', on: { click: async e => { e.target.disabled = true; const ok = await prepareUI(box); if (ok) setTimeout(rerender, 800); else e.target.disabled = false; } } }));
   }
+  const memLine = h('p', { class: 'note' });
+  const memBtn = h('button', { class: 'btn ghost wide', text: '覚えた物を消す', hidden: true, on: { click: async () => { if (await ask('覚えた物を消す', '写真から覚えた「前に記録した物」を全部消す？（記録や写真は消えない）', '消す')) { await ai.forgetMemory(); toast('消した'); rerender(); } } } });
+  ai.memoryCount().then(n => { memLine.textContent = n ? `写真から覚えた物：${n}件（写真つきで記録すると増える。次から似た写真で「前に記録した物」として上に出る）` : '写真つきで記録すると、その写真の特徴を覚えて、次から似た写真の時に上に出す（スマホの中だけ）'; memBtn.hidden = !n; }).catch(() => {});
+  add(aiBox, memLine, memBtn);
 
   const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
   const home = !standalone && h('section', { class: 'side-block' }, h('h2', { text: 'ホーム画面に追加しよう' }),
@@ -219,7 +223,7 @@ export async function renderSettings(root) {
     h('ul', { class: 'dots small' },
       h('li', {}, 'Transformers.js（Apache-2.0）', ' ', h('a', { href: 'vendor/transformers/transformers.LICENSE.txt', text: 'ライセンス' })),
       h('li', {}, 'ONNX Runtime Web（MIT）', ' ', h('a', { href: 'vendor/transformers/ONNXRUNTIME.LICENSE.txt', text: 'ライセンス' })),
-      h('li', { text: 'OpenAI CLIP ViT-B/32（MIT）：写真判定のAI。Hugging Face の Xenova/clip-vit-base-patch32 から各スマホでダウンロード' }),
+      h('li', { text: 'Google SigLIP base patch16-224（Apache-2.0）：写真判定のAI。Hugging Face の Xenova/siglip-base-patch16-224 から各スマホでダウンロード' }),
       h('li', {}, 'Zen Maru Gothic（SIL Open Font License 1.1）', ' ', h('a', { href: 'fonts/OFL-zen-maru-gothic.txt', text: 'ライセンス' }))),
     h('p', { class: 'note', text: 'このアプリの計算は目安で、医療のアドバイスではない。体調が気になる時はお医者さんに相談してね。バージョン ' + VERSION }));
 

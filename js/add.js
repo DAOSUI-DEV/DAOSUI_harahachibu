@@ -5,7 +5,12 @@ import * as foods from './foods.js';
 import * as ai from './ai.js';
 import { MEALS, mealName, mealNow } from './calc.js';
 import { EXERCISES, burn } from '../data/exercises.js';
+import { PHOTO_CATS } from '../data/photo-labels.js';
 import { state, rerender } from './state.js';
+
+/* 写真の特徴（判定した写真ID → 特徴）。写真つきで記録した時に「前に記録した物」として覚える */
+const embByPhoto = new Map();
+const learn = e => { if (e && e.ph && embByPhoto.has(e.ph)) ai.remember(embByPhoto.get(e.ph), e).catch(() => {}); };
 
 /* ---- 「量を選ぶ」画面で使う形にそろえる ---- */
 export function fromDish(d) { return { kind: 'dish', key: d.key, n: d.n, sub: d.g, unit: pick(d), uName: d.u || '1人前' }; }
@@ -84,6 +89,7 @@ export function amountSheet(it, { date = state.cur, meal = mealNow(), photo = nu
       if (photo) entry.ph = photo;
       entry.at = hm();
       const saved = store.addMeal(date, entry);
+      learn(saved);
       if (toMine) store.addMine({ n: it.n, q: entry.q, ...v, src: it.key });
       toast(`記録した：${it.n} ${n0(v.k)}kcal`, () => { store.removeMeal(date, saved.id); if (saved.ph) store.delPhoto(saved.ph); rerender(); });
     }
@@ -180,9 +186,9 @@ export function addSheet({ date = state.cur, meal = date === today() ? mealNow()
       add(out, h('img', { class: 'preview', src: url, alt: '撮った写真' }));
       if (!ai.isReady()) {
         const box = h('div', { class: 'callout' },
-          h('p', { text: '写真から料理を当てるには、最初にAIの準備がいる。' }),
+          h('p', { text: ai.isOld() ? '写真判定のAIを新しくした（前より当たりやすい）。使うにはもう一度準備がいる。' : '写真から料理を当てるには、最初にAIの準備がいる。' }),
           h('p', { class: 'note', text: ai.SIZE_NOTE }));
-        const go = h('button', { class: 'btn primary', text: '写真判定を準備する', on: { click: async () => { go.disabled = true; const ok = await prepareUI(box); if (ok) classify(blob, out, url); } } });
+        const go = h('button', { class: 'btn primary', text: '写真判定を準備する', on: { click: async () => { go.disabled = true; const ok = await prepareUI(box); if (ok) classify(blob, out, url); else go.disabled = false; } } });
         add(box, h('div', { class: 'row-btns' }, go, h('button', { class: 'btn ghost', text: '写真だけ付けて、名前でさがす', on: { click: () => { setPhotoChip(url); show('search'); } } })));
         add(out, box);
         return;
@@ -191,22 +197,49 @@ export function addSheet({ date = state.cur, meal = date === today() ? mealNow()
     }
   }
   async function classify(blob, out, url) {
-    const st = h('p', { class: 'note', text: '何の料理か判定中…' });
+    const st = h('p', { class: 'note', text: '何の料理か判定中…（数秒かかるよ）' });
     out.querySelector('.callout')?.remove();
     add(out, st);
     let res;
     try { res = await ai.classify(blob); }
     catch (e) { st.textContent = '判定できなかった：' + e.message; st.className = 'err'; add(out, h('button', { class: 'btn ghost', text: '名前でさがす', on: { click: () => { setPhotoChip(url); show('search'); } } })); return; }
     st.remove();
+    const id = photoId;
+    embByPhoto.set(id, res.emb);
+    const o = opts();
+    const row = (name, sub, right, onTap) => h('li', {}, h('button', { class: 'item', on: { click: onTap } },
+      h('span', { class: 'item-n' }, h('span', { text: name }), sub && h('small', { text: sub })), h('span', { class: 'item-k', text: right })));
+    // 前に記録した物（自分の写真から覚えた物）
+    if (res.mem.length) add(out, h('h3', { text: '前に記録した物' }), h('ul', { class: 'list cand mem' }, res.mem.map(m =>
+      row(m.item.n, (m.s >= 0.9 ? 'とても似てる写真で記録した' : '似てる写真で記録した') + (m.item.q ? `・${m.item.q}` : ''), n0(m.item.k) + 'kcal',
+        () => amountSheet(m.item.base ? fromBase(m.item) : { kind: 'label', key: m.item.src || 'label', n: m.item.n, unit: pick(m.item), uName: m.item.q || '1回分' }, o)))));
+    // AIの候補（種類で絞れる）
+    let cat = null, shown = 6;
+    const chips = h('div', { class: 'chips cat-chips', role: 'radiogroup', 'aria-label': '種類で絞る' });
     const list = h('ul', { class: 'list cand' });
-    const word = p => (p >= 0.5 ? 'たぶんこれ' : p >= 0.2 ? 'かも' : 'もしかして');
-    res.forEach((r, i) => add(list, h('li', { hidden: i >= 3 }, h('button', { class: 'item', on: { click: () => amountSheet(fromDish(r.dish), opts()) } },
-      h('span', { class: 'item-n' }, h('span', { text: r.dish.n }), h('small', { text: `${word(r.p)}（${Math.round(r.p * 100) ? Math.round(r.p * 100) + "%" : "1%未満"}）` })),
-      h('span', { class: 'item-k', text: `${r.dish.u} ${n0(r.dish.k)}kcal` })))));
-    const more = h('button', { class: 'link', text: 'ほかの候補も見る', on: { click: () => { list.querySelectorAll('li[hidden]').forEach(li => (li.hidden = false)); more.remove(); } } });
-    add(out, h('h3', { text: 'これかな？' }), list, res.length > 3 && more,
-      h('p', { class: 'note', text: 'AIの推定だよ。量は次の画面で直せる' }),
-      h('button', { class: 'btn ghost wide', text: 'どれもちがう：名前でさがす', on: { click: () => { setPhotoChip(url); show('search'); } } }));
+    const more = h('button', { class: 'link', text: 'もっと見る' });
+    const draw = () => {
+      clear(chips);
+      [[null, 'ぜんぶ'], ...PHOTO_CATS].forEach(([k, l]) => add(chips, h('button', { class: 'chip' + (cat === k ? ' on' : ''), role: 'radio', 'aria-checked': String(cat === k), text: l, on: { click: () => { cat = k; shown = 6; draw(); } } })));
+      clear(list);
+      const all = res.cands.filter(c => !cat || c.c === cat);
+      all.slice(0, shown).forEach((c, i) => add(list, row(c.dish.n, i === 0 ? (cat ? 'この種類でいちばん近い' : 'いちばん近い') : '', `${c.dish.u} ${n0(c.dish.k)}kcal`, () => amountSheet(fromDish(c.dish), o))));
+      more.hidden = shown >= Math.min(all.length, 20);
+    };
+    more.addEventListener('click', () => { shown = 20; draw(); });
+    draw();
+    // その場で名前検索（写真は付いたまま）
+    const q = h('input', { type: 'search', placeholder: 'ちがう時は名前でさがす（例：カロリーメイト）', 'aria-label': '食べ物の名前でさがす', enterkeyhint: 'search', autocomplete: 'off' });
+    const sres = h('ul', { class: 'list' });
+    let timer;
+    const runSearch = () => { clear(sres); const v = q.value.trim(); if (!v) return; foods.search(v, 30).forEach(it => add(sres, itemRow(it, () => tapItem(it)))); };
+    q.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(runSearch, 150); });
+    foods.load().then(() => q.value.trim() && runSearch()).catch(() => {});
+    const head = h('h3', { text: 'これかな？（近い順）' });
+    add(out, head, chips, list, more,
+      h('div', { class: 'search inline-search' }, q), sres,
+      h('p', { class: 'note', text: 'AIの推定だよ。量は次の画面で直せる。写真つきで記録すると、次から似た写真の時に「前に記録した物」として上に出る（覚えるのもスマホの中だけ）' }));
+    (out.querySelector('.cand.mem') ? out.querySelector('h3') : head).scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
   }
 
   function labelPane() {
@@ -233,6 +266,7 @@ export function addSheet({ date = state.cur, meal = date === today() ? mealNow()
       const it = { kind: 'label', key: 'label', n: nm, unit, uName: '1個・1袋' };
       const v = scale(unit, a);
       const e = store.addMeal(date, { t, n: nm, q: qText(it, a), ...v, src: 'label', base: { kind: 'label', key: 'label', unit, amt: a, uName: '1個・1袋' }, ph: photoId || undefined, at: hm() });
+      learn(e);
       if (toMine) store.addMine({ n: nm, q: '1個・1袋', ...unit, src: 'label' });
       toast(`記録した：${nm} ${n0(v.k)}kcal`, () => { store.removeMeal(date, e.id); rerender(); });
       done(); rerender();
