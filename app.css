@@ -332,3 +332,51 @@ progress { width: 100%; height: 10px; accent-color: var(--ai); }
 .jan-chip[hidden] { display: none; }
 .jan-chip { background: color-mix(in srgb, var(--ok) 12%, var(--surface)); }
 .callout .btn { font-size: 14px; padding: 8px 12px; white-space: nowrap; }
+
+/* 1.3：量を1タップ・前と同じ・まとめて入力・材料から・カメラでバーコード・成績画像・iPhone連携 */
+.size-chips { display: block; }
+.size-chips .chips { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.size-chips .chip { min-height: 52px; padding: 6px 4px; font-family: var(--round); font-weight: 700; font-size: 14.5px; border-radius: 14px; }
+.list-h { font-size: 15px; margin-top: 14px; }
+.combos .item small { color: var(--ai); }
+.combos .item-n > span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.multi { display: grid; gap: 8px; margin-top: 8px; }
+.multi-row { display: grid; grid-template-columns: minmax(4.5em, auto) 1fr; align-items: center; gap: 10px; }
+.multi-q { font-family: var(--round); font-weight: 700; font-size: 14.5px; overflow-wrap: anywhere; }
+select { width: 100%; min-width: 0; font: inherit; font-size: 15px; color: var(--ink); background: var(--surface); border: 1.5px solid var(--line); border-radius: 12px; padding: 10px 12px; min-height: 46px; }
+select:focus { outline: none; border-color: var(--ai); }
+.extra:empty { display: none; }
+.extra .btn { margin-top: 4px; }
+input[type=time] { font: inherit; font-size: 16px; color: var(--ink); background: var(--surface); border: 1.5px solid var(--line); border-radius: 12px; padding: 8px 10px; min-height: 44px; }
+/* カメラ */
+.sheet.scan .sheet-body { padding-bottom: 20px; }
+.bc-cam { position: relative; border-radius: 16px; overflow: hidden; background: #000; aspect-ratio: 3 / 4; max-height: 56vh; margin: 0 auto; }
+.bc-video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.bc-frame { position: absolute; left: 4%; right: 4%; top: 30%; height: 40%; border: 3px solid #fff; border-radius: 14px; box-shadow: 0 0 0 999px rgba(0, 0, 0, .35); }
+/* 材料から */
+.ing-row .item-n { padding: 8px 0; }
+.amt-line.small input { width: 84px; min-height: 40px; padding: 6px 10px; }
+.recipe-sum { margin: 14px 0 6px; padding: 12px; border-radius: 14px; background: var(--ai-soft); }
+.recipe-sum .amt-kcal small { font-size: 14px; color: var(--sub); }
+.recipe-sum .pfc-row { justify-content: center; }
+/* ヘルスケア */
+.hk-box { margin-top: 12px; }
+.hk-box .row-btns > * { flex: 1 1 120px; }
+.hk-out:empty { display: none; }
+.hk-out { margin-top: 10px; font-size: 14px; }
+.hk-out input { margin-top: 6px; }
+.hk-row { margin: 10px 0 0 50px; }
+.hk-row .note { margin: 0; }
+.hk-row .link { font-size: 13px; padding: 4px 0; text-align: left; }
+.ios h3 { margin-top: 16px; }
+.how { margin-top: 6px; }
+.how .steps { font-size: 14px; line-height: 1.75; }
+.how .steps li + li { margin-top: 4px; }
+.rem-rows { display: grid; gap: 4px; margin-top: 6px; }
+.rem-row { justify-content: flex-start; }
+.rem-row span { width: 5.5em; }
+/* 成績画像 */
+.report-opts { margin: 10px 0; }
+.report-opts input[type=text] { margin-top: 6px; }
+.report-img { width: 100%; border-radius: 16px; border: 1px solid var(--line); display: block; margin: 8px 0 14px; aspect-ratio: 4 / 5; background: var(--paper); }
+.rem-row input[type=time] { width: auto; height: auto; min-width: 8em; margin-left: auto; }

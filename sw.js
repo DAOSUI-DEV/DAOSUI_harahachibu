@@ -1,11 +1,11 @@
 /* オフラインでも開けるように、アプリ本体をスマホに保存する。
    記録そのものは扱わない（記録は localStorage / IndexedDB にあって、ここは通らない） */
-const CACHE = 'harahachibu-v4';
+const CACHE = 'harahachibu-v5';
 const FILES = [
   './', 'index.html', 'app.css', 'manifest.webmanifest', 'fonts/zen-maru-gothic.css',
   'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png',
   'js/app.js', 'js/util.js', 'js/state.js', 'js/store.js', 'js/calc.js', 'js/foods.js', 'js/add.js', 'js/today.js', 'js/history.js',
-  'js/suggest.js', 'js/suggestview.js', 'js/settings.js', 'js/charts.js', 'js/backup.js', 'js/ai.js', 'js/ai-worker.js', 'js/barcode.js',
+  'js/suggest.js', 'js/suggestview.js', 'js/settings.js', 'js/charts.js', 'js/backup.js', 'js/ai.js', 'js/ai-worker.js', 'js/barcode.js', 'js/ios.js', 'js/report.js',
   'data/foods.json', 'data/dishes-more.json', 'data/chains.json', 'data/dishes.js', 'data/recipes.js', 'data/exercises.js', 'data/photo-labels.js'
 ];
 self.addEventListener('install', e => {

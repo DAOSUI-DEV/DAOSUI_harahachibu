@@ -1,5 +1,5 @@
 /* 記録する：食べた物（さがす・写真・成分表示・マイメニュー）、量の調整、修正、運動、体重 */
-import { h, add, clear, sheet, toast, ask, numInput, field, n0, n1, num, hm, jdate, today } from './util.js';
+import { h, add, clear, sheet, toast, ask, numInput, field, n0, n1, num, hm, jdate, today, addDays } from './util.js';
 import * as store from './store.js';
 import * as foods from './foods.js';
 import * as ai from './ai.js';
@@ -7,6 +7,7 @@ import { MEALS, mealName, mealNow } from './calc.js';
 import { EXERCISES, burn } from '../data/exercises.js';
 import { PHOTO_CATS } from '../data/photo-labels.js';
 import { state, rerender } from './state.js';
+import { SC_WEIGHT, shortcutURL, parseWeight } from './ios.js';
 
 /* 写真の特徴（判定した写真ID → 特徴）。写真つきで記録した時に「前に記録した物」として覚える */
 const embByPhoto = new Map();
@@ -33,7 +34,26 @@ function qText(it, amt) {
     return u ? `${u[0]}（${amt}g）` : `${n1(amt)}g`;
   }
   const base = it.uName || '1人前';
-  return amt === 1 ? base : `${base} ×${n1(amt)}`;
+  if (amt === 1) return base;
+  const nm = SIZES.find(x => x[0] === amt);
+  return nm ? `${base}・${nm[1]}` : `${base} ×${n1(amt)}`;
+}
+/* 量の名前（写真のあとに1タップで選ぶ） */
+const SIZES = [[0.5, '半分'], [0.75, '少なめ'], [1.5, '大盛り']];
+/* 検索の結果などを「量を選ぶ」画面の形に */
+export function toForm(it) {
+  if (it.kind === 'mext') return fromMext(it);
+  if (it.kind === 'off') return fromOff(it);
+  if (it.kind === 'mine') return fromMine(it);
+  if (it.kind === 'recent') return it.base ? fromBase({ n: it.n, base: it.base }) : { kind: 'label', key: it.src, n: it.n, unit: pick(it), uName: it.q || '1回分' };
+  return fromDish(it);
+}
+/* ふつうの量（g の物は最初の単位、それ以外は1人前） */
+const defAmt = f => (per100(f) ? ((f.units && f.units[0] && f.units[0][1]) || 100) : 1);
+/* 記録1件の中身 */
+function makeEntry(f, amt, t) {
+  const v = scale(f.unit, ratio(f, amt));
+  return { t, n: f.n, q: qText(f, amt), ...v, src: f.key, base: { kind: f.kind, key: f.key, unit: f.unit, amt, uName: f.uName, units: f.units, refuse: f.refuse } };
 }
 const pfcLine = v => [
   ['たんぱく質', v.p, 'g'], ['脂質', v.f, 'g'], ['炭水化物', v.c, 'g'], ['塩分', v.s, 'g']
@@ -57,7 +77,7 @@ export function amountSheet(it, { date = state.cur, meal = mealNow(), photo = nu
   const chips = h('div', { class: 'chips' });
   const presets = per100(it)
     ? [...(it.units || []).map(u => [u[0] === `${u[1]}g` ? u[0] : `${u[0]} ${u[1]}g`, u[1]]), ['100g', 100]].filter((x, i, a) => a.findIndex(y => y[1] === x[1]) === i)
-    : [['半分', 0.5], ['1', 1], ['1.5', 1.5], ['2', 2]];
+    : photo ? [['半分残した', 0.5], ['少なめ', 0.75], ['普通', 1], ['大盛り', 1.5]] : [['半分', 0.5], ['1', 1], ['1.5', 1.5], ['2', 2]];
   const draw = () => {
     const v = scale(it.unit, ratio(it, amt));
     clear(big); add(big, h('strong', { text: n0(v.k) }), h('span', { text: 'kcal' }));
@@ -72,8 +92,8 @@ export function amountSheet(it, { date = state.cur, meal = mealNow(), photo = nu
   const body = [
     it.sub && h('p', { class: 'sub', text: it.sub }),
     big, pf,
-    h('h3', { text: per100(it) ? '食べた量（g）' : '量（1人前・1個を1として）' }),
-    chips,
+    h('h3', { text: per100(it) ? '食べた量（g）' : photo ? '量はどのくらい？（1タップで選べる）' : '量（1人前・1個を1として）' }),
+    photo && !per100(it) ? h('div', { class: 'size-chips' }, chips) : chips,
     h('div', { class: 'amt-line' }, per100(it) ? null : h('span', { text: '×' }), inp, per100(it) ? h('span', { text: 'g' }) : null),
     per100(it) && it.refuse > 0 && h('p', { class: 'note', text: `皮・骨・種など食べない部分（約${it.refuse}%）をのぞいた重さで入れてね` }),
     it.kind === 'mext' && h('p', { class: 'note', text: '値は100gあたりの成分から計算。' + foods.cite() }),
@@ -89,8 +109,8 @@ export function amountSheet(it, { date = state.cur, meal = mealNow(), photo = nu
   draw();
   function save() {
     if (!(amt > 0)) return;
-    const v = scale(it.unit, ratio(it, amt));
-    const entry = { t, n: it.n, q: qText(it, amt), ...v, src: it.key, base: { kind: it.kind, key: it.key, unit: it.unit, amt, uName: it.uName, units: it.units, refuse: it.refuse } };
+    const entry = makeEntry(it, amt, t);
+    const v = entry;
     if (edit) {
       store.updateMeal(date, edit.id, entry);
       toast('変更した');
@@ -112,7 +132,7 @@ export function amountSheet(it, { date = state.cur, meal = mealNow(), photo = nu
 
 /* ---- 食べた物を記録（メインのシート） ---- */
 export function addSheet({ date = state.cur, meal = date === today() ? mealNow() : 'd', tab = 'search' } = {}) {
-  let t = meal, photoId = null, used = false, pendingJan = null;
+  let t = meal, photoId = null, used = false, pendingJan = null, paneHook = null;
   const tabs = [['search', 'さがす'], ['photo', '写真'], ['label', '成分表示'], ['mine', 'マイメニュー']];
   const seg = h('div', { class: 'seg', role: 'tablist' });
   const pane = h('div', { class: 'pane' });
@@ -121,13 +141,14 @@ export function addSheet({ date = state.cur, meal = date === today() ? mealNow()
   const done = () => { used = true; sh.close(); };
   const body = [
     h('p', { class: 'sub', text: jdate(date) }),
-    mealChips(t, x => (t = x)),
+    mealChips(t, x => { t = x; paneHook && paneHook(); }),
     seg, photoChip, janChip, pane
   ];
   const sh = sheet('食べた物を記録', body, { tall: true, onClose: () => { if (photoId && !used) store.delPhoto(photoId); } });
   const show = name => {
     [...seg.children].forEach(b => { const on = b.dataset.tab === name; b.classList.toggle('on', on); b.setAttribute('aria-selected', String(on)); });
     clear(pane);
+    paneHook = null;
     ({ search: searchPane, photo: photoPane, label: labelPane, mine: minePane })[name]();
   };
   tabs.forEach(([k, l]) => add(seg, h('button', { class: 'seg-btn', role: 'tab', text: l, data: { tab: k }, on: { click: () => show(k) } })));
@@ -152,38 +173,75 @@ export function addSheet({ date = state.cur, meal = date === today() ? mealNow()
       h('span', { class: 'item-n' }, h('span', { text: it.n }), it.sub && h('small', { text: it.sub }), it.kind === 'dish' && h('small', { text: it.chain ? 'お店の公式の値' : it.calc ? '成分表から計算' : '目安' }), it.kind === 'off' && h('small', { text: [it.brand, '商品（Open Food Facts）'].filter(Boolean).join('・') })),
       h('span', { class: 'item-k', text: right + 'kcal' })));
   }
-  const tapItem = it => {
-    if (it.kind === 'mext') amountSheet(fromMext(it), opts());
-    else if (it.kind === 'off') amountSheet(fromOff(it), opts());
-    else if (it.kind === 'mine') amountSheet(fromMine(it), opts());
-    else if (it.kind === 'recent') amountSheet(it.base ? fromBase({ n: it.n, base: it.base }) : { kind: 'label', key: it.src, n: it.n, unit: pick(it), uName: it.q || '1回分' }, opts());
-    else amountSheet(fromDish(it), opts());
+  const tapItem = it => amountSheet(toForm(it), opts());
+  /* 何品かをまとめて記録（写真があれば1品目に付ける） */
+  const recordMany = entries => {
+    if (!entries.length) return;
+    const saved = entries.map((e, i) => store.addMeal(date, { ...e, t, at: hm(), ph: i === 0 && photoId ? photoId : undefined }));
+    if (saved[0].ph) learn(saved[0]);
+    const sum = saved.reduce((a, e) => a + (e.k || 0), 0);
+    toast(`記録した：${saved.length}品 ${n0(sum)}kcal`, () => { saved.forEach(e => store.removeMeal(date, e.id)); rerender(); });
+    done(); rerender();
   };
 
   function searchPane() {
     const q = h('input', { type: 'search', placeholder: '例：おにぎり、鶏むね、ラーメン', 'aria-label': '食べ物の名前', enterkeyhint: 'search', autocomplete: 'off' });
     const list = h('ul', { class: 'list' });
     const info = h('p', { class: 'note' });
+    const extra = h('div', { class: 'extra' });
     const run = () => {
-      clear(list);
+      clear(list); clear(extra);
       const v = q.value.trim();
       if (!v) {
+        const cb = mealCombos(t, date);
+        if (cb.length) add(extra, h('h3', { class: 'list-h', text: '前と同じ（ワンタップでまとめて記録）' }), h('ul', { class: 'list combos' }, cb.map(c => h('li', {},
+          h('button', { class: 'item', on: { click: () => recordMany(c.items.map(e => ({ n: e.n, q: e.q, k: e.k, p: e.p ?? null, f: e.f ?? null, c: e.c ?? null, s: e.s ?? null, src: e.src, base: e.base }))) } },
+            h('span', { class: 'item-n' }, h('span', { text: c.items.map(e => e.n).join('・') }), h('small', { text: c.label })),
+            h('span', { class: 'item-k', text: `${c.items.length}品 ${n0(c.items.reduce((a, e) => a + (e.k || 0), 0))}kcal` }))))));
         const rc = store.recent();
-        info.textContent = rc.length ? '最近記録した物' : '名前を入れてね。料理・コンビニの目安と、成分表（2,538品）からさがせる';
+        info.textContent = (rc.length ? '最近記録した物' : '名前を入れてね。料理・チェーン店・商品・成分表からさがせる') + '。「、」で区切ると、まとめて記録できる（例：ラーメン、餃子）';
         rc.slice(0, 15).forEach(r => add(list, itemRow({ ...r, kind: 'recent' }, () => tapItem({ ...r, kind: 'recent' }))));
         return;
       }
+      const parts = v.split(/[、,，\n]+/).map(x => x.trim()).filter(Boolean);
+      if (parts.length >= 2) { info.textContent = ''; multi(parts.slice(0, 10)); return; }
       const res = foods.search(v);
       info.textContent = res.length ? '' : '見つからなかった。ひらがなや短い言葉でもさがしてみて。袋に成分表示があれば「成分表示」から入れられる';
       res.forEach(it => add(list, itemRow(it, () => tapItem(it))));
     };
+    /* まとめて入力：「、」で区切った言葉ごとに、いちばん近い物を選んでおく（ちがう時は選び直せる） */
+    function multi(parts) {
+      const rows = parts.map(p => { const res = foods.search(p, 6); return { p, res, sel: res.length ? 0 : -1 }; });
+      const box = h('div', { class: 'multi' });
+      const sum = h('p', { class: 'combo-sum' });
+      const btn = h('button', { class: 'btn primary wide', on: { click: () => recordMany(rows.filter(r => r.sel >= 0).map(r => { const f = toForm(r.res[r.sel]); return makeEntry(f, defAmt(f), t); })) } });
+      const draw = () => {
+        clear(box);
+        rows.forEach(r => add(box, h('label', { class: 'multi-row' }, h('span', { class: 'multi-q', text: r.p }),
+          h('select', { 'aria-label': `「${r.p}」で記録する物`, on: { change: e => { r.sel = Number(e.target.value); draw(); } } },
+            r.res.map((it, j) => { const f = toForm(it), a = defAmt(f), e = makeEntry(f, a, t); return h('option', { value: String(j), selected: j === r.sel, text: `${it.n}（${e.q} ${n0(e.k)}kcal）` }); }),
+            h('option', { value: '-1', selected: r.sel === -1, text: r.res.length ? '記録しない' : '見つからなかった' })))));
+        const ch = rows.filter(r => r.sel >= 0);
+        const k = ch.reduce((a, r) => { const f = toForm(r.res[r.sel]); return a + makeEntry(f, defAmt(f), t).k; }, 0);
+        sum.textContent = `${ch.length}品・${n0(k)}kcal（量はふつう。記録したあと、1品ずつタップして直せる）`;
+        btn.textContent = `${ch.length}品をまとめて記録`;
+        btn.disabled = !ch.length;
+      };
+      draw();
+      add(extra, h('h3', { class: 'list-h', text: 'まとめて記録' }), box, sum, btn);
+    }
+    paneHook = () => { if (!q.value.trim()) run(); };
     let timer;
     q.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(run, 120); });
     const bcInp = h('input', { type: 'file', accept: 'image/*', capture: 'environment', class: 'vh', on: { change: () => bcInp.files[0] && scan(bcInp.files[0]) } });
     const bcOut = h('div', { class: 'bc-out' });
+    const bcBtn = h('button', { class: 'btn ghost small', text: 'バーコードで探す', on: { click: () => {
+      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) liveScanSheet(code => found(code), () => bcInp.click());
+      else bcInp.click();
+    } } });
     add(pane, h('div', { class: 'search' }, q),
-      h('div', { class: 'bc-row' }, h('label', { class: 'btn ghost small' }, 'バーコードで探す', bcInp), h('span', { class: 'note', text: '袋のバーコードを撮る（スマホの中で読む）' })),
-      bcOut, info, list);
+      h('div', { class: 'bc-row' }, bcBtn, bcInp, h('span', { class: 'note', text: 'カメラを向けると読む（スマホの中で読む）' })),
+      bcOut, extra, info, list);
     run();
     async function scan(file) {
       clear(bcOut);
@@ -340,14 +398,183 @@ export function addSheet({ date = state.cur, meal = date === today() ? mealNow()
       if (!m.length) { add(list, h('li', { class: 'empty', text: 'まだない。量を選ぶ画面で「マイメニューにも入れる」にチェックすると、ここに並ぶ' })); return; }
       m.forEach(it => add(list, h('li', { class: 'with-del' },
         h('button', { class: 'item', on: { click: () => amountSheet(fromMine(it), opts()) } },
-          h('span', { class: 'item-n' }, h('span', { text: it.n }), it.q && h('small', { text: it.q })), h('span', { class: 'item-k', text: n0(it.k) + 'kcal' })),
+          h('span', { class: 'item-n' }, h('span', { text: it.n }), (it.q || it.r) && h('small', { text: [it.q, it.r && `材料${it.r.items.length}つから計算（${it.r.sv}人分を作った時の1人前）`].filter(Boolean).join('・') })), h('span', { class: 'item-k', text: n0(it.k) + 'kcal' })),
         h('button', { class: 'icon-btn', 'aria-label': it.n + 'をマイメニューから外す', text: '×', on: { click: async () => { if (await ask('マイメニューから外す', `「${it.n}」を外す？（記録は消えない）`, '外す')) { store.removeMine(it.id); draw(); } } } }))));
     };
-    add(pane, list);
+    add(pane, h('button', { class: 'btn ghost wide', text: '＋ 材料から自分の料理を作る', on: { click: () => recipeSheet(draw) } }),
+      h('p', { class: 'note', text: '家のカレーや作り置きなど。成分表の材料と量（g）から1人前を計算して、マイメニューに入れる' }), list);
     draw();
   }
 
   show(tab);
+  return sh;
+}
+
+/* ---- 前と同じ：この食事（朝・昼…）のいちばん近い日の組み合わせと、30日でよく食べる組み合わせ ---- */
+export function mealCombos(t, date) {
+  const sig = items => items.map(e => e.n + '|' + (e.q || '')).sort().join('\n');
+  const lim = addDays(date, -30);
+  const days = store.recordedDays().filter(d => d < date && d >= lim).reverse();
+  const counts = new Map();
+  let prev = null;
+  for (const d of days) {
+    const items = store.day(d).m.filter(e => e.t === t);
+    if (!items.length) continue;
+    const s = sig(items);
+    if (!prev) prev = { d, s, items };
+    const c = counts.get(s) || { n: 0, items };
+    c.n++;
+    counts.set(s, c);
+  }
+  const out = [];
+  if (prev) {
+    const n = counts.get(prev.s).n;
+    out.push({ label: (prev.d === addDays(date, -1) ? '昨日の' : jdate(prev.d, false) + 'の') + mealName(t) + (n >= 2 ? `（30日で${n}回）` : ''), items: prev.items });
+  }
+  [...counts.entries()].filter(([s, c]) => (!prev || s !== prev.s) && c.n >= 2).sort((a, b) => b[1].n - a[1].n).slice(0, 2)
+    .forEach(([, c]) => out.push({ label: `よく食べる（30日で${c.n}回）`, items: c.items }));
+  return out;
+}
+
+/* ---- カメラを向けてバーコードを読む。閉じたら・アプリを離れたら、カメラはすぐ止める ---- */
+export function liveScanSheet(onCode, fallback) {
+  const video = h('video', { class: 'bc-video', playsinline: true, muted: true, autoplay: true, 'aria-label': 'カメラの映像' });
+  const status = h('p', { class: 'note', role: 'status', text: 'カメラを準備中…（はじめての時は、カメラを使う許可を聞かれる）' });
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  let stream = null, stopped = false, timer = null;
+  const end = () => {
+    stopped = true;
+    clearTimeout(timer);
+    document.removeEventListener('visibilitychange', onVis);
+    if (stream) stream.getTracks().forEach(tr => tr.stop());
+    stream = null;
+    video.srcObject = null;
+  };
+  const onVis = () => { if (document.visibilityState === 'hidden') sh.close(); };
+  document.addEventListener('visibilitychange', onVis);
+  const sh = sheet('バーコードを読む', [
+    h('div', { class: 'bc-cam' }, video, h('div', { class: 'bc-frame', 'aria-hidden': 'true' })),
+    status,
+    h('p', { class: 'note', text: '映像はスマホの中で読むだけ。保存も送信もしない。読めたら自動で次に進む' }),
+    h('button', { class: 'btn ghost wide', text: 'うまく読めない時は、写真を撮って読む', on: { click: () => { sh.close(); fallback && fallback(); } } })
+  ], { onClose: end, cls: 'scan' });
+  (async () => {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } } });
+    } catch (e) {
+      status.className = 'err';
+      status.textContent = e && e.name === 'NotAllowedError'
+        ? 'カメラを使う許可がなかった。下の「写真を撮って読む」を使ってね'
+        : 'カメラを使えなかった。下の「写真を撮って読む」を使ってね';
+      return;
+    }
+    if (stopped) { stream.getTracks().forEach(tr => tr.stop()); stream = null; return; }
+    video.srcObject = stream;
+    try { await video.play(); } catch { }
+    status.textContent = 'バーコードを枠の中に入れてね（横長に、画面の幅いっぱいくらい）';
+    let bc;
+    try { bc = await import('./barcode.js'); } catch (e) { status.className = 'err'; status.textContent = '読み取りの準備ができなかった：' + e.message; return; }
+    const tick = async () => {
+      if (stopped) return;
+      const w = video.videoWidth, hgt = video.videoHeight;
+      if (w && hgt) {
+        // 横は全部・縦は真ん中の6割だけ読む（速い）。位置は整数にする（半端だと線がぼやけて読めない）
+        const chh = Math.round(hgt * 0.6), top = Math.round((hgt - chh) / 2);
+        const sc = w > 1280 ? 0.5 : 1;
+        canvas.width = Math.round(w * sc); canvas.height = Math.round(chh * sc);
+        ctx.drawImage(video, 0, top, w, chh, 0, 0, canvas.width, canvas.height);
+        let code = null;
+        try { code = await bc.readImageData(ctx.getImageData(0, 0, canvas.width, canvas.height)); } catch (e) { console.error(e); }
+        if (stopped) return;
+        if (code) {                                                                 // zxing がチェックディジットまで確かめた物だけ
+          try { navigator.vibrate && navigator.vibrate(30); } catch { }
+          sh.close();
+          onCode(code);
+          return;
+        }
+      }
+      timer = setTimeout(tick, 120);
+    };
+    tick();
+  })();
+  return sh;
+}
+
+/* ---- 材料から自分の料理を作る（成分表・商品の100gあたりの値 × 量） ---- */
+export function recipeSheet(onSaved) {
+  const name = h('input', { type: 'text', maxlength: 40, placeholder: '例：家のカレー', autocomplete: 'off' });
+  const sv = numInput({ value: '1' });
+  const q = h('input', { type: 'search', placeholder: '材料をさがす（例：豚こま、玉ねぎ、カレールウ）', 'aria-label': '材料の名前', autocomplete: 'off', enterkeyhint: 'search' });
+  const res = h('ul', { class: 'list' });
+  const rows = h('ul', { class: 'list ing' });
+  const tot = h('div', { class: 'recipe-sum', 'aria-live': 'polite' });
+  const err = h('p', { class: 'err', role: 'alert' });
+  const items = [];
+  const grams = it => (it.units && it.units[0] && it.units[0][1]) || it.serv || 100;
+  const calc = () => {
+    const s = { k: 0, p: 0, f: 0, c: 0, s: 0 };
+    let unknown = false;
+    for (const x of items) {
+      const v = foods.scaled(x.it, x.g || 0);
+      s.k += v.k || 0;
+      for (const key of ['p', 'f', 'c', 's']) { if (v[key] == null) unknown = true; s[key] += v[key] || 0; }
+    }
+    const n = Math.min(20, Math.max(1, num(sv.value) || 1));
+    const per = { k: Math.round(s.k / n), p: Math.round(s.p / n * 10) / 10, f: Math.round(s.f / n * 10) / 10, c: Math.round(s.c / n * 10) / 10, s: Math.round(s.s / n * 10) / 10 };
+    return { s, per, n, unknown };
+  };
+  const drawSum = () => {
+    clear(tot);
+    if (!items.length) { add(tot, h('p', { class: 'note', text: '材料をさがして足してね。量は g で入れる（皮や骨など食べない所はのぞいた重さ）' })); return; }
+    const r = calc();
+    add(tot, h('div', { class: 'amt-kcal' }, h('small', { text: '1人前 ' }), h('strong', { text: n0(r.per.k) }), h('span', { text: 'kcal' })),
+      h('div', { class: 'pfc-row' }, pfcLine(r.per)),
+      h('p', { class: 'note', text: `全部で ${n0(r.s.k)}kcal を ${r.n}人分に分けた量` + (r.unknown ? '。たんぱく質などがわからない材料があるので、少なめに出ている' : '') }));
+  };
+  const drawRows = () => {
+    clear(rows);
+    items.forEach((x, i) => {
+      const g = numInput({ value: String(x.g), 'aria-label': x.it.n + 'の量（g）' });
+      g.addEventListener('input', () => { x.g = Math.min(5000, Math.max(0, num(g.value) || 0)); drawSum(); });
+      add(rows, h('li', { class: 'with-del ing-row' },
+        h('span', { class: 'item-n' }, h('span', { text: x.it.n }), x.it.units && x.it.units[0] && h('small', { text: `${x.it.units[0][0]}＝${x.it.units[0][1]}g` })),
+        h('span', { class: 'amt-line small' }, g, h('span', { text: 'g' })),
+        h('button', { class: 'icon-btn', 'aria-label': x.it.n + 'を外す', text: '×', on: { click: () => { items.splice(i, 1); drawRows(); } } })));
+    });
+    drawSum();
+  };
+  let timer;
+  const run = () => {
+    clear(res);
+    const v = q.value.trim();
+    if (!v) return;
+    foods.search(v, 40).filter(it => it.kind === 'mext' || it.kind === 'off').slice(0, 8).forEach(it => add(res, h('li', {},
+      h('button', { class: 'item', on: { click: () => { items.push({ it, g: grams(it) }); q.value = ''; clear(res); drawRows(); } } },
+        h('span', { class: 'item-n' }, h('span', { text: it.n }), it.sub && h('small', { text: it.sub }), it.kind === 'off' && h('small', { text: it.brand || '商品' })),
+        h('span', { class: 'item-k', text: `100gで ${n0(it.k)}kcal` })))));
+  };
+  q.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(run, 150); });
+  sv.addEventListener('input', drawSum);
+  foods.load().then(() => q.value.trim() && run()).catch(() => {});
+  const sh = sheet('材料から料理を作る', [
+    field('料理の名前', name),
+    h('div', { class: 'grid2' }, field('何人分作った？', sv, '全部の量を人数で分ける')),
+    h('h3', { text: '材料' }), rows,
+    h('div', { class: 'search' }, q), res,
+    tot, err,
+    h('button', { class: 'btn primary wide', text: 'マイメニューに入れる', on: { click: () => {
+      const nm = name.value.trim();
+      if (!nm) { err.textContent = '料理の名前を入れてね'; name.focus(); return; }
+      if (!items.length) { err.textContent = '材料を1つ以上足してね'; q.focus(); return; }
+      const r = calc();
+      store.addMine({ n: nm, q: '1人前', ...r.per, src: 'recipe', r: { sv: r.n, items: items.map(x => [x.it.n, x.g]) } });
+      toast(`マイメニューに入れた：${nm}（1人前 ${n0(r.per.k)}kcal）`);
+      sh.close();
+      onSaved && onSaved();
+    } } })
+  ], { tall: true });
+  drawRows();
   return sh;
 }
 
@@ -443,17 +670,55 @@ export function weightSheet(date = state.cur, lead) {
   const kg = numInput({ value: cur ? String(cur[1]) : '', placeholder: last ? String(last[1]) : '例：62.5' });
   const fat = numInput({ value: cur && cur[2] != null ? String(cur[2]) : '', placeholder: '体組成計があれば' });
   const err = h('p', { class: 'err', role: 'alert' });
+  let recDate = date;
+  const dateLine = h('p', { class: 'sub', text: jdate(date) + '（毎朝、トイレのあと・朝ごはんの前に量ると、くらべやすい）' });
+  /* ヘルスケアから（設定で「ヘルスケア連携」をオンにした人だけ） */
+  const hkOut = h('div', { class: 'hk-out', 'aria-live': 'polite' });
+  const usePasted = text => {
+    const r = parseWeight(text);
+    if (!r) { hkOut.className = 'hk-out err'; hkOut.textContent = '体重が見つからなかった。ショートカットが動いたか確かめてね'; return false; }
+    kg.value = String(r.kg);
+    fat.value = r.fat != null ? String(r.fat) : '';
+    recDate = r.date && r.date <= today() ? r.date : date;
+    dateLine.textContent = jdate(recDate) + 'に記録する';
+    hkOut.className = 'hk-out callout soft';
+    hkOut.textContent = `ヘルスケアの記録：${n1(r.kg)}kg` + (r.fat != null ? `・体脂肪 ${n1(r.fat)}%` : '') + (r.date ? `（${jdate(r.date, false)}${r.time ? ' ' + r.time : ''}）` : '') + '。よければ「記録する」を押してね';
+    return true;
+  };
+  const paste = async () => {
+    try {
+      if (!navigator.clipboard || !navigator.clipboard.readText) throw new Error('no clipboard');
+      const text = await navigator.clipboard.readText();
+      if (usePasted(text)) return;
+    } catch { }
+    // 読めない時は、自分で貼り付けてもらう
+    clear(hkOut); hkOut.className = 'hk-out';
+    const box = h('input', { type: 'text', placeholder: 'ここを長押しして「ペースト」', autocomplete: 'off', 'aria-label': 'コピーした体重を貼り付ける' });
+    box.addEventListener('input', () => usePasted(box.value));
+    add(hkOut, h('p', { class: 'note', text: '自動で読めなかった。下の欄を長押しして「ペースト」してね' }), box);
+    box.focus();
+  };
+  const hk = store.settings().hk && h('div', { class: 'hk-box' },
+    h('div', { class: 'row-btns' },
+      h('button', { class: 'btn ghost small', text: '① ヘルスケアから取ってくる', on: { click: () => {
+        clear(hkOut); hkOut.className = 'hk-out note';
+        hkOut.textContent = `ショートカット「${SC_WEIGHT}」が動いて、体重をコピーする。終わったらこの画面に戻って②を押してね`;
+        location.href = shortcutURL(SC_WEIGHT);
+      } } }),
+      h('button', { class: 'btn ghost small', text: '② 貼り付ける', on: { click: paste } })),
+    hkOut);
   const sh = sheet('体重を記録', [
     lead && h('p', { class: 'lead', text: lead }),
-    h('p', { class: 'sub', text: jdate(date) + '（毎朝、トイレのあと・朝ごはんの前に量ると、くらべやすい）' }),
+    dateLine,
     h('div', { class: 'grid2' }, field('体重（kg）', kg), field('体脂肪率（%）', fat)),
+    hk,
     err,
     h('button', { class: 'btn primary wide', text: '記録する', on: { click: () => {
       const v = num(kg.value), fv = num(fat.value);
       if (v == null || v < 20 || v > 300) { err.textContent = '体重を kg で入れてね（例：62.5）'; return; }
       if (fv != null && (fv < 2 || fv > 70)) { err.textContent = '体脂肪率は % で入れてね（例：24.5）'; return; }
-      store.setWeight(date, Math.round(v * 10) / 10, fv == null ? null : Math.round(fv * 10) / 10);
-      toast('体重を記録した'); sh.close(); rerender();
+      store.setWeight(recDate, Math.round(v * 10) / 10, fv == null ? null : Math.round(fv * 10) / 10);
+      toast(recDate === date ? '体重を記録した' : `${jdate(recDate, false)}の体重を記録した`); sh.close(); rerender();
     } } }),
     cur && h('button', { class: 'btn ghost wide', text: 'この日の体重を消す', on: { click: () => { store.setWeight(date, null); sh.close(); rerender(); toast('消した'); } } })
   ]);

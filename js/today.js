@@ -4,6 +4,19 @@ import * as store from './store.js';
 import { totals, meterLevel, MEALS, bank, mealNow } from './calc.js';
 import { state, rerender } from './state.js';
 import { addSheet, editSheet, exerciseSheet, weightSheet } from './add.js';
+import { SC_LOG, shortcutURL, healthPayload } from './ios.js';
+
+/* 食べた分をヘルスケアに書き込む（ショートカット「はらはちぶ記録」に渡す）。まだ送っていない分だけ */
+function sendHealth(d) {
+  const t = totals(store.day(d));
+  const prev = store.hkSent(d);
+  const pl = healthPayload(d, t, prev);
+  if (pl.delta <= 0) return;
+  store.setHkSent(d, { k: t.k, p: t.p, f: t.f, c: t.c, s: t.s });
+  location.href = shortcutURL(SC_LOG, JSON.stringify(pl.data));
+  toast(`ショートカットに${n0(pl.delta)}kcal分を渡した`, () => { store.setHkSent(d, prev); rerender(); });
+  rerender();
+}
 
 let lastRatio = 0, lastDate = null;
 
@@ -97,6 +110,17 @@ export function renderToday(root) {
         h('span', { class: 'item-k', text: n0(e.k) }))))) : null));
   }
 
+  let hkRow = null;
+  if (store.settings().hk && t.n) {
+    const sent = store.hkSent(d);
+    const pl = healthPayload(d, t, sent);
+    hkRow = h('div', { class: 'hk-row' },
+      pl.delta > 0
+        ? h('button', { class: 'btn ghost small', text: `ヘルスケアに送る（${sent ? 'まだの分 ' : ''}${n0(pl.delta)}kcal）`, on: { click: () => sendHealth(d) } })
+        : h('p', { class: 'note' }, pl.delta === 0 ? 'ヘルスケアに送った。' : `送ったあとに減った分（${n0(-pl.delta)}kcal）は、ヘルスケアのアプリで直してね。`,
+          h('button', { class: 'link', text: '送れていなかった時は、もう一度送れるようにする', on: { click: () => { store.setHkSent(d, null); rerender(); } } })));
+  }
+
   const exs = h('section', { class: 'side-block' },
     h('div', { class: 'block-head' }, h('h2', { text: '運動' }), h('button', { class: 'link', text: '＋ 運動を記録', on: { click: () => exerciseSheet(d) } })),
     day.x.length ? h('ul', { class: 'list' }, day.x.map(x => h('li', { class: 'with-del' },
@@ -134,6 +158,6 @@ export function renderToday(root) {
     lvl === 'over' && isToday && h('p', { class: 'callout soft', text: '今日はオーバー。明日からの数日で少しずつ戻せばOK。1日で取り戻そうとしないでね' })
   ];
 
-  add(root, head, meter, notes, meals, exs, wt, bk,
+  add(root, head, meter, notes, meals, hkRow, exs, wt, bk,
     h('button', { class: 'fab', on: { click: () => addSheet({ date: d, meal: isToday ? mealNow() : 'd' }) } }, h('span', { text: '＋', 'aria-hidden': 'true' }), '食べた物を記録'));
 }

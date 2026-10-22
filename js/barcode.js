@@ -18,12 +18,18 @@ async function toImageData(file, max = 1600) {
   return ctx.getImageData(0, 0, cv.width, cv.height);
 }
 
-/* 読めたら数字の文字列、読めなければ null */
+const FORMATS = ['EAN13', 'EAN8', 'UPCA', 'UPCE'];
+const pickCode = res => { const ok = res.find(r => r.isValid && /^\d{8,14}$/.test(r.text)); return ok ? ok.text : null; };
+
+/* 写真から。読めたら数字の文字列、読めなければ null */
 export async function readCode(file) {
   const img = await toImageData(file);
-  const res = await readBarcodes(img, { formats: ['EAN13', 'EAN8', 'UPCA', 'UPCE'], tryHarder: true, tryRotate: true, tryInvert: false, maxNumberOfSymbols: 1 });
-  const ok = res.find(r => r.isValid && /^\d{8,14}$/.test(r.text));
-  return ok ? ok.text : null;
+  return pickCode(await readBarcodes(img, { formats: FORMATS, tryHarder: true, tryRotate: true, tryInvert: false, maxNumberOfSymbols: 1 }));
+}
+
+/* カメラの映像の1コマから（速さ優先：回転は試さない） */
+export async function readImageData(img) {
+  return pickCode(await readBarcodes(img, { formats: FORMATS, tryHarder: true, tryRotate: false, tryInvert: false, maxNumberOfSymbols: 1 }));
 }
 
 /* 手で入れた数字が JAN として正しいか（チェックディジット） */

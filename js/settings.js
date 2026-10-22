@@ -7,8 +7,74 @@ import { plan, PAL, ageNow } from './calc.js';
 import { makeBackup, readBackup, restore, saveFile } from './backup.js';
 import { prepareUI } from './add.js';
 import { rerender } from './state.js';
+import { SC_WEIGHT, SC_LOG, makeIcs, appURL } from './ios.js';
 
-export const VERSION = '1.2.0';
+const steps = (title, list, note) => h('details', { class: 'more how' }, h('summary', { text: title }),
+  h('ol', { class: 'steps' }, list.map(x => h('li', { text: x }))), note && h('p', { class: 'note', text: note }));
+
+/* iPhone との連携：ヘルスケア（ショートカット経由）と、記録忘れのお知らせ（カレンダー） */
+function iosBlock(st) {
+  const box = h('section', { class: 'side-block ios' }, h('h2', { text: 'iPhoneとの連携' }));
+  add(box,
+    h('h3', { text: 'ヘルスケア' }),
+    h('p', { class: 'note', text: 'iPhoneの「ショートカット」アプリを使って、ヘルスケアの体重を取り込んだり、食べた分をヘルスケアに書き込んだりできる。データはこのiPhoneの中だけを通る（外には送らない）。最初に下の2つのショートカットを作ってね（1回だけ）' }),
+    h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: !!st.hk, on: { change: e => { store.setSettings({ hk: e.target.checked }); toast(e.target.checked ? 'ヘルスケア連携をオンにした' : 'オフにした'); } } }),
+      'ヘルスケア連携を使う（体重の画面と「今日」の画面にボタンが出る）'),
+    steps(`① 体重を取り込むショートカット「${SC_WEIGHT}」の作り方`, [
+      '「ショートカット」アプリを開いて、右上の「＋」をタップ',
+      `いちばん上の名前をタップして「${SC_WEIGHT}」にする（この名前のとおりに。ちがうと動かない）`,
+      '「アクションを追加」→ 検索で「ヘルスケアサンプルを検索」を追加。「種類」を「体重」、並べ替えを「開始日」「新しい順」、「制限」をオンにして「1」にする',
+      'もう一度「ヘルスケアサンプルを検索」を追加して、「種類」を「体脂肪率」にする（ほかは同じ）。体組成計がない人はとばしてOK',
+      '「テキスト」を追加して「はらはちぶ体重 kg=」と入れ、続けてキーボードの上の候補から1つめの「ヘルスケアサンプル」を入れる。続けて「 fat=」と2つめの「ヘルスケアサンプル」、「 date=」と1つめの「ヘルスケアサンプル」をもう一度入れて、それをタップして「開始日」にする',
+      '「クリップボードにコピー」を追加',
+      '「通知を表示」を追加して「コピーした。はらはちぶに戻って②を押してね」と入れる',
+      '右上の「完了」。はらはちぶの体重の画面で「① ヘルスケアから取ってくる」→ 戻って「② 貼り付ける」で入る'
+    ], '初めて動かす時に「ヘルスケアのデータを読む」許可を聞かれる。iOSのバージョンで、ボタンの名前が少しちがうことがある'),
+    steps(`② 食べた分を書き込むショートカット「${SC_LOG}」の作り方`, [
+      `新しいショートカットを作って、名前を「${SC_LOG}」にする（この名前のとおりに）`,
+      '「入力から辞書を取得」を追加（入力は「ショートカットの入力」）',
+      '「辞書の値を取得」を追加して、キーを「date」にする',
+      '「辞書の値を取得」をもう1つ追加して、入力を「辞書」、キーを「kcal」にする',
+      '「ヘルスケアサンプルを記録」を追加。種類を「摂取エネルギー」、値を「辞書の値」（kcal）、日付を「辞書の値」（date）にする',
+      '4〜5を、キー「protein」→「タンパク質」、「fat」→「総脂肪」、「carbs」→「炭水化物」、「sodium_mg」→「ナトリウム」（単位 mg）でくり返す。いらない物はとばしてOK',
+      '右上の「完了」。「今日」の画面の「ヘルスケアに送る」を押すと動く'
+    ], 'はらはちぶは「まだ送っていない分」だけを渡すので、何回押しても同じ分が2回入ることはない。送ったあとに記録を消した分は、ヘルスケアのアプリで直してね'));
+
+  // 記録忘れのお知らせ
+  const rem = st.rem || { b: [false, '08:30'], l: [false, '12:30'], d: [true, '20:00'] };
+  const save = () => store.setSettings({ rem });
+  const NAMES = { b: '朝ごはん', l: '昼ごはん', d: '夜ごはん' };
+  const rows = h('div', { class: 'rem-rows' }, Object.keys(NAMES).map(k => {
+    const tm = h('input', { type: 'time', value: rem[k][1], 'aria-label': NAMES[k] + 'のお知らせの時刻', on: { change: e => { rem[k][1] = e.target.value || rem[k][1]; save(); } } });
+    return h('label', { class: 'check rem-row' }, h('input', { type: 'checkbox', checked: !!rem[k][0], on: { change: e => { rem[k][0] = e.target.checked; save(); } } }), h('span', { text: NAMES[k] }), tm);
+  }));
+  const err = h('p', { class: 'err', role: 'alert' });
+  add(box,
+    h('h3', { text: '記録忘れのお知らせ' }),
+    h('p', { class: 'note', text: 'iPhoneのカレンダーに「はらはちぶ：記録した？」の予定を毎日入れて、その時刻にお知らせを出す。サーバーは使わない' }),
+    rows, err,
+    h('button', { class: 'btn ghost wide', text: 'カレンダーに追加する', on: { click: () => {
+      const list = Object.keys(NAMES).filter(k => rem[k][0]).map(k => ({ hm: rem[k][1], title: `はらはちぶ：${NAMES[k]}、記録した？`, body: '食べた物を記録しよう（記録はスマホの中だけ）' }));
+      if (!list.length) { err.textContent = 'お知らせする時刻を1つ以上えらんでね'; return; }
+      err.textContent = '';
+      const blob = new Blob([makeIcs(list, appURL())], { type: 'text/calendar' });
+      const url = URL.createObjectURL(blob);
+      const a = h('a', { href: url, download: 'harahachibu-oshirase.ics' });
+      document.body.append(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      toast('カレンダーのファイルを作った。「すべてを追加」で入る');
+    } } }),
+    h('p', { class: 'note', text: 'やめる時は、カレンダーでその予定を開いて「イベントを削除」→「今後のすべてのイベントを削除」。うまく追加できない時は、Safariではらはちぶを開いて同じボタンを押すか、下のショートカットの方法を使ってね' }),
+    steps('ショートカットのオートメーションでお知らせする方法', [
+      '「ショートカット」アプリの下にある「オートメーション」→ 右上の「＋」',
+      '「時刻」を選んで、時刻（例：20:00）と「毎日」を選び、「すぐに実行」にする',
+      '「新規の空のオートメーション」→「通知を表示」を追加して「はらはちぶ：食べた物を記録した？」と入れる',
+      '「完了」。朝・昼もほしい時は同じように作る'
+    ]));
+  return box;
+}
+
+export const VERSION = '1.3.0';
 
 function radios(name, opts, cur, onPick) {
   const wrap = h('div', { class: 'chips', role: 'radiogroup', 'aria-label': name });
@@ -226,7 +292,8 @@ export async function renderSettings(root) {
     h('ul', { class: 'dots' },
       h('li', { text: '記録・体重・写真・目標は、このスマホの中だけに保存。サーバーには送らない（ログインもない）' }),
       h('li', { text: 'インターネットを使うのは、アプリ本体と食品データの読み込み、写真判定のAIデータの初回ダウンロード（Hugging Face から）だけ。検索した言葉やバーコードはどこにも送らない（データを丸ごとスマホに読み込んで、スマホの中で探している）' }),
-      h('li', { text: '写真は保存する時に小さくして、位置情報などの付加情報を消している' })),
+      h('li', { text: '写真は保存する時に小さくして、位置情報などの付加情報を消している' }),
+      h('li', { text: 'バーコードを読むカメラの映像も、成績の画像づくりも、スマホの中だけ。ヘルスケアとのやりとりは、iPhoneの「ショートカット」アプリを通してiPhoneの中だけでする' })),
     h('h3', { text: '出典' }),
     h('p', { class: 'note', text: '食品の成分：' + (foods.cite() || '日本食品標準成分表（八訂）増補2023年から引用') + '（文部科学省）。料理・コンビニの値は成分表などをもとにした目安で、店や作り方で変わる' }),
     h('p', { class: 'note' }, '商品（バーコード）：Contains data from ', ext('https://world.openfoodfacts.org/', 'Open Food Facts'), ', available under the ', ext('https://opendatacommons.org/licenses/odbl/1-0/', 'Open Database License'), '。みんなで入力しているデータなので、まちがいもある'),
@@ -241,5 +308,5 @@ export async function renderSettings(root) {
       h('li', {}, 'Zen Maru Gothic（SIL Open Font License 1.1）', ' ', h('a', { href: 'fonts/OFL-zen-maru-gothic.txt', text: 'ライセンス' }))),
     h('p', { class: 'note', text: 'このアプリの計算は目安で、医療のアドバイスではない。体調が気になる時はお医者さんに相談してね。バージョン ' + VERSION }));
 
-  add(root, h('header', { class: 'dayhead' }, h('h1', { text: '設定' })), goal, aiBox, home, data, about);
+  add(root, h('header', { class: 'dayhead' }, h('h1', { text: '設定' })), goal, aiBox, home, iosBlock(st), data, about);
 }

@@ -61,6 +61,9 @@ export function renderCalendar(root) {
       h('div', {}, h('strong', { text: String(recDays) }), h('span', { text: '日 記録した' })),
       h('div', {}, h('strong', { text: String(okDays) }), h('span', { text: '日 目安以内' })),
       h('div', {}, h('strong', { text: recDays ? n0(sum / recDays) : '—' }), h('span', { text: 'kcal 1日平均' }))),
+    h('section', { class: 'side-block share-block' }, h('h2', { text: '友達に見せる' }),
+      h('p', { class: 'note', text: '1週間の成績を画像にして、LINEなどで送れる。名前・今の体重・食べた物は載らない' }),
+      h('button', { class: 'btn ghost wide', text: '今週の成績を画像にする', on: { click: () => import('./report.js').then(m => m.reportSheet()) } })),
     weeks.length ? h('section', { class: 'side-block' }, h('h2', { text: '週ごとのカロリー貯金' }), h('ul', { class: 'weeks' }, weeks),
       h('p', { class: 'note', text: '貯金＝その日に使える量 − 食べた量 の合計。プラスなら食べ過ぎていない' })) : null);
 }

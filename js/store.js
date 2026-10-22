@@ -74,7 +74,7 @@ export function addMine(e) {
   const list = mine();
   const same = list.find(x => x.n === e.n && x.k === e.k);
   if (same) return same;
-  const it = { id: uid(), n: e.n, q: e.q || '', k: e.k, p: e.p ?? null, f: e.f ?? null, c: e.c ?? null, s: e.s ?? null, src: e.src || 'mine' };
+  const it = { id: uid(), n: e.n, q: e.q || '', k: e.k, p: e.p ?? null, f: e.f ?? null, c: e.c ?? null, s: e.s ?? null, src: e.src || 'mine', r: e.r || undefined };
   list.unshift(it);
   set('mine', list.slice(0, 200));
   return it;
@@ -89,6 +89,16 @@ export function janSet(code, e) {
   const m = get('jan', {});
   m[code] = { n: e.n, q: e.q, k: e.k, p: e.p ?? null, f: e.f ?? null, c: e.c ?? null, s: e.s ?? null, src: e.src, base: e.base || null };
   set('jan', m);
+}
+
+/* ヘルスケアに送った合計（日付 → {k,p,f,c,s}）。同じ分を2回送らないため。90日より前は消す */
+export const hkSent = d => get('hk', {})[d] || null;
+export function setHkSent(d, v) {
+  const m = get('hk', {});
+  if (v) m[d] = v; else delete m[d];
+  const old = Object.keys(m).sort().slice(0, -90);
+  old.forEach(k => delete m[k]);
+  set('hk', m);
 }
 
 /* 最近記録した物（検索の最初に出す） */
