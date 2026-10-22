@@ -13,15 +13,22 @@ const embByPhoto = new Map();
 const learn = e => { if (e && e.ph && embByPhoto.has(e.ph)) ai.remember(embByPhoto.get(e.ph), e).catch(() => {}); };
 
 /* ---- 「量を選ぶ」画面で使う形にそろえる ---- */
-export function fromDish(d) { return { kind: 'dish', key: d.key, n: d.n, sub: d.g, unit: pick(d), uName: d.u || '1人前' }; }
+export function fromDish(d) { return { kind: 'dish', key: d.key, n: d.n, sub: d.g, unit: pick(d), uName: d.u || '1人前', chain: d.chain, cdate: d.cdate }; }
 export function fromMext(m) { return { kind: 'mext', key: m.key, n: m.n, sub: m.sub, unit: pick(m), units: m.units, refuse: m.refuse }; }
+export function fromOff(o) {
+  const units = [];
+  if (o.serv) units.push(['1食分', o.serv]);
+  if (o.pkg && o.pkg !== o.serv) units.push(['1個・1袋', o.pkg]);
+  return { kind: 'off', key: o.key, n: o.n, sub: [o.brand, 'Open Food Facts'].filter(Boolean).join('・'), unit: pick(o), units, refuse: 0, code: o.code };
+}
 export function fromMine(m) { return { kind: 'mine', key: 'my:' + m.id, n: m.n, sub: m.q, unit: pick(m), uName: m.q || '1回分' }; }
 export function fromBase(e) { const b = e.base; return { kind: b.kind, key: b.key, n: e.n, sub: b.kind === 'mext' ? '' : '', unit: b.unit, units: b.units, uName: b.uName, refuse: b.refuse }; }
 const pick = o => ({ k: o.k, p: o.p ?? null, f: o.f ?? null, c: o.c ?? null, s: o.s ?? null });
 const scale = (u, r) => { const v = x => (x == null ? null : Math.round(x * r * 10) / 10); return { k: Math.round(u.k * r), p: v(u.p), f: v(u.f), c: v(u.c), s: v(u.s) }; };
-const ratio = (it, amt) => (it.kind === 'mext' ? amt / 100 : amt);
+export const per100 = it => it.kind === 'mext' || it.kind === 'off';
+const ratio = (it, amt) => (per100(it) ? amt / 100 : amt);
 function qText(it, amt) {
-  if (it.kind === 'mext') {
+  if (per100(it)) {
     const u = (it.units || []).find(x => x[1] === amt);
     return u ? `${u[0]}（${amt}g）` : `${n1(amt)}g`;
   }
@@ -41,14 +48,14 @@ function mealChips(cur, onPick) {
 
 /* ---- 量を選んで記録（edit があれば修正） ---- */
 export function amountSheet(it, { date = state.cur, meal = mealNow(), photo = null, edit = null, onDone } = {}) {
-  let amt = edit ? edit.base.amt : it.kind === 'mext' ? ((it.units && it.units[0] && it.units[0][1]) || 100) : 1;
+  let amt = edit ? edit.base.amt : per100(it) ? ((it.units && it.units[0] && it.units[0][1]) || 100) : 1;
   let t = edit ? edit.t : meal;
   let toMine = false;
   const big = h('div', { class: 'amt-kcal' });
   const pf = h('div', { class: 'pfc-row' });
-  const inp = numInput({ value: String(amt), 'aria-label': it.kind === 'mext' ? 'グラム' : '倍率', class: 'amt-input' });
+  const inp = numInput({ value: String(amt), 'aria-label': per100(it) ? 'グラム' : '倍率', class: 'amt-input' });
   const chips = h('div', { class: 'chips' });
-  const presets = it.kind === 'mext'
+  const presets = per100(it)
     ? [...(it.units || []).map(u => [u[0] === `${u[1]}g` ? u[0] : `${u[0]} ${u[1]}g`, u[1]]), ['100g', 100]].filter((x, i, a) => a.findIndex(y => y[1] === x[1]) === i)
     : [['半分', 0.5], ['1', 1], ['1.5', 1.5], ['2', 2]];
   const draw = () => {
@@ -59,17 +66,19 @@ export function amountSheet(it, { date = state.cur, meal = mealNow(), photo = nu
     btn.disabled = !(amt > 0);
   };
   presets.forEach(([l, v]) => add(chips, h('button', { class: 'chip', text: l, data: { v }, on: { click: () => { amt = v; inp.value = String(v); draw(); } } })));
-  inp.addEventListener('input', () => { const v = num(inp.value); amt = v && v > 0 ? Math.min(v, it.kind === 'mext' ? 5000 : 20) : 0; draw(); });
+  inp.addEventListener('input', () => { const v = num(inp.value); amt = v && v > 0 ? Math.min(v, per100(it) ? 5000 : 20) : 0; draw(); });
   const btn = h('button', { class: 'btn primary wide', text: edit ? '変更する' : '記録する', on: { click: save } });
   const mineBox = it.kind !== 'mine' && !edit && h('label', { class: 'check' }, h('input', { type: 'checkbox', on: { change: e => (toMine = e.target.checked) } }), 'マイメニューにも入れる（次から1タップ）');
   const body = [
     it.sub && h('p', { class: 'sub', text: it.sub }),
     big, pf,
-    h('h3', { text: it.kind === 'mext' ? '食べた量（g）' : '量（1人前・1個を1として）' }),
+    h('h3', { text: per100(it) ? '食べた量（g）' : '量（1人前・1個を1として）' }),
     chips,
-    h('div', { class: 'amt-line' }, it.kind === 'mext' ? null : h('span', { text: '×' }), inp, it.kind === 'mext' ? h('span', { text: 'g' }) : null),
-    it.kind === 'mext' && it.refuse > 0 && h('p', { class: 'note', text: `皮・骨・種など食べない部分（約${it.refuse}%）をのぞいた重さで入れてね` }),
+    h('div', { class: 'amt-line' }, per100(it) ? null : h('span', { text: '×' }), inp, per100(it) ? h('span', { text: 'g' }) : null),
+    per100(it) && it.refuse > 0 && h('p', { class: 'note', text: `皮・骨・種など食べない部分（約${it.refuse}%）をのぞいた重さで入れてね` }),
     it.kind === 'mext' && h('p', { class: 'note', text: '値は100gあたりの成分から計算。' + foods.cite() }),
+    it.kind === 'off' && h('p', { class: 'note', text: '値は Open Food Facts（みんなで入力している商品データ・ODbL）の100gあたりの成分から計算。まちがいもあるので、袋の表示とちがう時は「成分表示」から入れてね' }),
+    it.chain && h('p', { class: 'note', text: `値は${it.chain}が公開している栄養成分（${it.cdate ? it.cdate.replace(/-/g, '/') + ' に確認' : '確認した時点'}）。メニューや量が変わると値も変わるよ` + (it.unit.p == null ? '。たんぱく質などは公開されていないので「—」' : '') }),
     h('h3', { text: '食事' }),
     mealChips(t, x => (t = x)),
     photo && h('p', { class: 'note', text: '写真つきで記録する' }),
@@ -85,6 +94,7 @@ export function amountSheet(it, { date = state.cur, meal = mealNow(), photo = nu
     if (edit) {
       store.updateMeal(date, edit.id, entry);
       toast('変更した');
+      onDone && onDone(true);
     } else {
       if (photo) entry.ph = photo;
       entry.at = hm();
@@ -92,8 +102,8 @@ export function amountSheet(it, { date = state.cur, meal = mealNow(), photo = nu
       learn(saved);
       if (toMine) store.addMine({ n: it.n, q: entry.q, ...v, src: it.key });
       toast(`記録した：${it.n} ${n0(v.k)}kcal`, () => { store.removeMeal(date, saved.id); if (saved.ph) store.delPhoto(saved.ph); rerender(); });
+      onDone && onDone(true, saved);
     }
-    onDone && onDone(true);
     sh.close();
     rerender();
   }
@@ -102,16 +112,17 @@ export function amountSheet(it, { date = state.cur, meal = mealNow(), photo = nu
 
 /* ---- 食べた物を記録（メインのシート） ---- */
 export function addSheet({ date = state.cur, meal = date === today() ? mealNow() : 'd', tab = 'search' } = {}) {
-  let t = meal, photoId = null, used = false;
+  let t = meal, photoId = null, used = false, pendingJan = null;
   const tabs = [['search', 'さがす'], ['photo', '写真'], ['label', '成分表示'], ['mine', 'マイメニュー']];
   const seg = h('div', { class: 'seg', role: 'tablist' });
   const pane = h('div', { class: 'pane' });
   const photoChip = h('div', { class: 'photo-chip', hidden: true });
+  const janChip = h('div', { class: 'photo-chip jan-chip', hidden: true });
   const done = () => { used = true; sh.close(); };
   const body = [
     h('p', { class: 'sub', text: jdate(date) }),
     mealChips(t, x => (t = x)),
-    seg, photoChip, pane
+    seg, photoChip, janChip, pane
   ];
   const sh = sheet('食べた物を記録', body, { tall: true, onClose: () => { if (photoId && !used) store.delPhoto(photoId); } });
   const show = name => {
@@ -120,7 +131,14 @@ export function addSheet({ date = state.cur, meal = date === today() ? mealNow()
     ({ search: searchPane, photo: photoPane, label: labelPane, mine: minePane })[name]();
   };
   tabs.forEach(([k, l]) => add(seg, h('button', { class: 'seg-btn', role: 'tab', text: l, data: { tab: k }, on: { click: () => show(k) } })));
-  const opts = () => ({ date, meal: t, photo: photoId, onDone: ok => ok && done() });
+  const opts = () => ({ date, meal: t, photo: photoId, onDone: (ok, e) => { if (ok && pendingJan && e) { store.janSet(pendingJan, e); toast(`記録した。次からバーコード ${pendingJan} で出るよ`); } if (ok) done(); } });
+  const setJan = code => {
+    pendingJan = code;
+    clear(janChip);
+    janChip.hidden = !code;
+    if (code) add(janChip, h('span', { text: `バーコード ${code} を登録中：次に記録した物を、このバーコードで覚える` }),
+      h('button', { class: 'link', text: 'やめる', on: { click: () => setJan(null) } }));
+  };
   const setPhotoChip = url => {
     clear(photoChip);
     photoChip.hidden = !url;
@@ -129,13 +147,14 @@ export function addSheet({ date = state.cur, meal = date === today() ? mealNow()
   };
 
   function itemRow(it, onTap) {
-    const right = it.kind === 'mext' ? `100gで ${n0(it.k)}` : it.kind === 'mine' ? `${it.q || '1回分'} ${n0(it.k)}` : it.kind === 'recent' ? `${it.q || ''} ${n0(it.k)}` : `${it.u || '1人前'} ${n0(it.k)}`;
+    const right = per100(it) ? `100gで ${n0(it.k)}` : it.kind === 'mine' ? `${it.q || '1回分'} ${n0(it.k)}` : it.kind === 'recent' ? `${it.q || ''} ${n0(it.k)}` : `${it.u || '1人前'} ${n0(it.k)}`;
     return h('li', {}, h('button', { class: 'item', on: { click: onTap } },
-      h('span', { class: 'item-n' }, h('span', { text: it.n }), it.sub && h('small', { text: it.sub }), it.kind === 'dish' && h('small', { text: '目安' })),
+      h('span', { class: 'item-n' }, h('span', { text: it.n }), it.sub && h('small', { text: it.sub }), it.kind === 'dish' && h('small', { text: it.chain ? 'お店の公式の値' : it.calc ? '成分表から計算' : '目安' }), it.kind === 'off' && h('small', { text: [it.brand, '商品（Open Food Facts）'].filter(Boolean).join('・') })),
       h('span', { class: 'item-k', text: right + 'kcal' })));
   }
   const tapItem = it => {
     if (it.kind === 'mext') amountSheet(fromMext(it), opts());
+    else if (it.kind === 'off') amountSheet(fromOff(it), opts());
     else if (it.kind === 'mine') amountSheet(fromMine(it), opts());
     else if (it.kind === 'recent') amountSheet(it.base ? fromBase({ n: it.n, base: it.base }) : { kind: 'label', key: it.src, n: it.n, unit: pick(it), uName: it.q || '1回分' }, opts());
     else amountSheet(fromDish(it), opts());
@@ -160,8 +179,47 @@ export function addSheet({ date = state.cur, meal = date === today() ? mealNow()
     };
     let timer;
     q.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(run, 120); });
-    add(pane, h('div', { class: 'search' }, q), info, list);
+    const bcInp = h('input', { type: 'file', accept: 'image/*', capture: 'environment', class: 'vh', on: { change: () => bcInp.files[0] && scan(bcInp.files[0]) } });
+    const bcOut = h('div', { class: 'bc-out' });
+    add(pane, h('div', { class: 'search' }, q),
+      h('div', { class: 'bc-row' }, h('label', { class: 'btn ghost small' }, 'バーコードで探す', bcInp), h('span', { class: 'note', text: '袋のバーコードを撮る（スマホの中で読む）' })),
+      bcOut, info, list);
     run();
+    async function scan(file) {
+      clear(bcOut);
+      add(bcOut, h('p', { class: 'note', text: 'バーコードを読んでいる…' }));
+      let code = null;
+      try { code = await (await import('./barcode.js')).readCode(file); } catch (e) { console.error(e); }
+      bcInp.value = '';
+      clear(bcOut);
+      if (!code) {
+        const man = h('input', { type: 'text', inputmode: 'numeric', placeholder: 'バーコードの下の数字（13けた）', autocomplete: 'off', 'aria-label': 'バーコードの数字' });
+        const err = h('p', { class: 'err', role: 'alert' });
+        add(bcOut, h('p', { class: 'note', text: '読めなかった。明るい所で、バーコードを画面いっぱいに、まっすぐ撮ってみて。数字を手で入れてもOK' }),
+          h('div', { class: 'bc-row' }, man, h('button', { class: 'btn ghost small', text: '探す', on: { click: async () => {
+            const v = man.value.normalize('NFKC').replace(/\D/g, '');
+            if (!(await import('./barcode.js')).validJan(v)) { err.textContent = '数字が正しくないみたい。もう一度見て入れてね'; return; }
+            found(v);
+          } } })), err);
+        return;
+      }
+      found(code);
+    }
+    async function found(code) {
+      clear(bcOut);
+      add(bcOut, h('p', { class: 'note', text: `バーコード ${code} を探している…` }));
+      const r = await foods.byCode(code);
+      clear(bcOut);
+      if (r && r.kind === 'jan') { amountSheet(r.item.base ? fromBase(r.item) : { kind: 'label', key: r.item.src || 'label', n: r.item.n, unit: pick(r.item), uName: r.item.q || '1回分' }, opts()); return; }
+      if (r && r.kind === 'off') { amountSheet(fromOff(r.item), opts()); return; }
+      add(bcOut, h('div', { class: 'callout soft' },
+        h('p', { text: `バーコード ${code} の商品は見つからなかった。` }),
+        h('p', { class: 'note', text: '袋の成分表示を入れるか、名前でさがして記録すると、次からこのバーコードで出るよ（覚えるのはこのスマホの中だけ）' }),
+        h('div', { class: 'row-btns' },
+          h('button', { class: 'btn primary', text: '成分表示を入れる', on: { click: () => { setJan(code); show('label'); } } }),
+          h('button', { class: 'btn ghost', text: '名前でさがす', on: { click: () => { setJan(code); clear(bcOut); q.focus(); } } }))));
+    }
+    foods.loadOff().then(() => q.value.trim() && run());
     foods.load().then(() => q.value.trim() && run()).catch(e => { info.textContent = e.message; });
     setTimeout(() => q.focus({ preventScroll: true }), 250);
   }
@@ -267,6 +325,7 @@ export function addSheet({ date = state.cur, meal = date === today() ? mealNow()
       const v = scale(unit, a);
       const e = store.addMeal(date, { t, n: nm, q: qText(it, a), ...v, src: 'label', base: { kind: 'label', key: 'label', unit, amt: a, uName: '1個・1袋' }, ph: photoId || undefined, at: hm() });
       learn(e);
+      if (pendingJan) { store.janSet(pendingJan, e); setJan(null); }
       if (toMine) store.addMine({ n: nm, q: '1個・1袋', ...unit, src: 'label' });
       toast(`記録した：${nm} ${n0(v.k)}kcal`, () => { store.removeMeal(date, e.id); rerender(); });
       done(); rerender();

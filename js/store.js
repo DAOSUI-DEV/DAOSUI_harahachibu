@@ -82,6 +82,15 @@ export function addMine(e) {
 export const removeMine = id => set('mine', mine().filter(x => x.id !== id));
 export const inMine = e => mine().some(x => x.n === e.n && x.k === e.k);
 
+/* 自分で登録したバーコード（JAN → 記録した時の中身）。Open Food Facts にない商品を、次からバーコードで出す */
+export const janGet = code => get('jan', {})[code] || null;
+export function janSet(code, e) {
+  if (!/^\d{8,14}$/.test(code)) return;
+  const m = get('jan', {});
+  m[code] = { n: e.n, q: e.q, k: e.k, p: e.p ?? null, f: e.f ?? null, c: e.c ?? null, s: e.s ?? null, src: e.src, base: e.base || null };
+  set('jan', m);
+}
+
 /* 最近記録した物（検索の最初に出す） */
 export const recent = () => get('recent', []);
 function pushRecent(e) {

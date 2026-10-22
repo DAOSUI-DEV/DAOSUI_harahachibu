@@ -3,7 +3,8 @@
 食べた物のカロリーがすぐわかって、食べ過ぎかどうかがひと目でわかる記録アプリ。iPhone の Safari で開いて「ホーム画面に追加」して使う（Web アプリ）。
 
 - 記録するとお茶碗が満ちていく。目安を超えるとあふれる（緑→黄→朱）
-- 食べ物の検索（日本食品標準成分表の全2,538食品＋料理・コンビニ・商品の目安 約340品）、写真から推定（スマホの中だけで判定・約300種の候補・種類で絞り込み）、袋の成分表示の入力、マイメニュー
+- 食べ物の検索：日本食品標準成分表の全2,538食品＋料理・コンビニの目安 約1,370品＋チェーン店13店のメニュー 996品（各社の公式の栄養成分）＋日本で売っている商品（Open Food Facts・毎月自動で更新）
+- バーコードで探す（写真からJANコードを読む。見つからない商品は1回入れれば次からバーコードで出る）、写真から推定（スマホの中だけで判定・約300種の候補・種類で絞り込み）、袋の成分表示の入力、マイメニュー
 - 写真つきで記録すると、その写真の特徴をスマホの中に覚えて、次から似た写真の時に「前に記録した物」として一番上に出す
 - 目標体重と期限から1日の目安を計算（安全装置つき）
 - カレンダー、体重・体脂肪のグラフ（傾向線と到達日の予想）、運動の記録、カロリー貯金（週の合計）
@@ -14,7 +15,8 @@
 | 項目 | 設定 |
 | --- | --- |
 | 記録の保存場所 | このスマホのブラウザの中だけ（localStorage と IndexedDB）。サーバーはない。ログインもない |
-| 外への通信 | アプリ本体の読み込み（GitHub Pages）と、写真判定のAIデータの初回ダウンロード（Hugging Face）だけ。Content-Security-Policy で、それ以外の通信先をブロック |
+| 外への通信 | アプリ本体と食品データの読み込み（GitHub Pages）と、写真判定のAIデータの初回ダウンロード（Hugging Face）だけ。Content-Security-Policy で、それ以外の通信先をブロック |
+| 検索・バーコード | 食品データを丸ごとスマホに読み込んで、スマホの中で探す。検索した言葉や読み取ったバーコードはどこにも送らない。バーコードの読み取りもスマホの中（WebAssembly） |
 | 写真 | 判定はスマホの中（Web Worker）で実行。保存する時は長い辺720pxに縮小し、位置情報などの付加情報（Exif）を消す。「前に記録した物」のために覚えるのは写真の特徴（数字の列）だけで、スマホの中の IndexedDB に置く（設定から消せる） |
 | バックアップ | パスワードで暗号化した1つのファイル（PBKDF2-SHA256 60万回 → AES-GCM 256bit）。パスワードはどこにも保存しない |
 | 外部のスクリプト | 使わない（すべてこのリポジトリの中のファイル） |
@@ -43,11 +45,14 @@
 
 - 食品の成分：日本食品標準成分表（八訂）増補2023年から引用（文部科学省）。`tools/make_foods.py` で Excel（第2章 データ）から `data/foods.json` を作成
 - 料理・コンビニ・レシピの値：成分表などをもとにした目安（店や作り方で変わる）。カロリーメイト・カップヌードル・どん兵衛・赤いきつね・緑のたぬき・U.F.O.・ペヤング・ファミチキなどの商品は、商品の栄養成分表示の値（2026年10月時点で調べた値。リニューアルで変わることがある）
+- チェーン店のメニュー：各社が公開している栄養成分（公式ページ・PDF）から、栄養成分だけを `tools/chains/*.txt` に写した物。店ごとの出典と確認した日は各ファイルの1行目とアプリの設定画面に書いてある。メニューや量の変更で値は変わる。`tools/make_chains.py` で `data/chains.json` を作る（店を足す時は txt を1つ足して動かすだけ）
+- 商品（バーコード）：Contains data from [Open Food Facts](https://world.openfoodfacts.org/), available under the [Open Database License (ODbL)](https://opendatacommons.org/licenses/odbl/1-0/)。GitHub Actions（`.github/workflows/off-jp.yml`）が毎月、日本で売っている商品のうち栄養成分がある物を `tools/off_jp.py` で取り出して `data/off-jp.json` を作り直す。`data/off-jp.json` も ODbL
 - 運動のメッツ：国立健康・栄養研究所「改訂版 身体活動のメッツ（METs）表」を参考にした目安
 - [Transformers.js](https://github.com/huggingface/transformers.js)（Apache-2.0）：`vendor/transformers/transformers.LICENSE.txt`
 - [ONNX Runtime Web](https://github.com/microsoft/onnxruntime)（MIT）：`vendor/transformers/ONNXRUNTIME.LICENSE.txt`
   - `transformers.min.js` は npm の `@huggingface/transformers@4.3.1` の `dist/transformers.min.js`。GitHub の秘密情報チェックがクラス名 `Mistral3…Generation`（英数字32文字）を APIキーと誤検知するため、`tools/patch_vendor.py` でその名前だけ「文字列をつなぐ形」に書き換えている（動作は同じ。秘密情報は入っていない）
 - 写真判定のAI：Google SigLIP base patch16-224（Apache-2.0）。[Xenova/siglip-base-patch16-224](https://huggingface.co/Xenova/siglip-base-patch16-224) を各スマホが初回にダウンロード（このリポジトリには含めない。初回約230MB、準備後にスマホに残るのは約120MB）。1.0 では OpenAI CLIP ViT-B/32 を使っていたが、当たりにくかったので 1.1 で入れ替えた
+- [zxing-wasm](https://github.com/Sec-ant/zxing-wasm) 3.1.6（MIT）と [zxing-cpp](https://github.com/zxing-cpp/zxing-cpp)（Apache-2.0）：バーコードの読み取り。`vendor/zxing/zxing-wasm.LICENSE.txt`・`vendor/zxing/NOTICE.txt`
 - フォント：Zen Maru Gothic（SIL Open Font License 1.1）：`fonts/OFL-zen-maru-gothic.txt`
 
 ## ファイル
@@ -55,11 +60,13 @@
 ```
 index.html / app.css / manifest.webmanifest / sw.js（オフライン用）
 js/      app（起動）・today（今日）・add（記録）・history（カレンダー・グラフ）・suggestview / suggest（提案）
-         settings（設定）・calc（計算）・store（保存）・foods（検索）・ai / ai-worker（写真判定）・backup・charts・util・state
-data/    foods.json（成分表）・dishes.js（料理の目安）・recipes.js・exercises.js・photo-labels.js（写真判定の候補）
-vendor/  transformers（AIを動かすライブラリ）
+         settings（設定）・calc（計算）・store（保存）・foods（検索）・barcode（バーコード）・ai / ai-worker（写真判定）・backup・charts・util・state
+data/    foods.json（成分表）・dishes.js / dishes-more.json（料理の目安）・chains.json（チェーン店）・off-jp.json（商品・自動で作る）
+         recipes.js・exercises.js・photo-labels.js（写真判定の候補）
+vendor/  transformers（AIを動かすライブラリ）・zxing（バーコードを読むライブラリ）
 fonts/   Zen Maru Gothic（太さ500・700）
-tools/   make_foods.py・fonts.py・icons.py（データやアイコンを作り直す道具）
+tools/   make_foods.py・make_dishes_more.py・make_chains.py（chains/*.txt から）・off_jp.py・fonts.py・icons.py・patch_vendor.py
+.github/workflows/off-jp.yml（商品データを毎月作り直す）
 ```
 
 アプリを更新した時は `sw.js` の `CACHE` の番号を上げる（スマホに新しい版が届く）。

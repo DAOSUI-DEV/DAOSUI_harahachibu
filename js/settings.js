@@ -8,7 +8,7 @@ import { makeBackup, readBackup, restore, saveFile } from './backup.js';
 import { prepareUI } from './add.js';
 import { rerender } from './state.js';
 
-export const VERSION = '1.1.0';
+export const VERSION = '1.2.0';
 
 function radios(name, opts, cur, onPick) {
   const wrap = h('div', { class: 'chips', role: 'radiogroup', 'aria-label': name });
@@ -211,19 +211,33 @@ export async function renderSettings(root) {
       h('button', { class: 'btn danger', text: 'すべての記録を消す', on: { click: wipeSheet } })),
     usage);
 
+  /* 外のサイトへのリンク（新しいタブで開き、こちらの情報は渡さない） */
+  const ext = (href, text) => h('a', { href, text, target: '_blank', rel: 'noopener noreferrer' });
+  /* チェーン店の出典。食品データを読み込んだあとで中身を入れる */
+  const chainBox = h('div', { class: 'note chain-src' });
+  foods.load().then(() => {
+    const list = foods.chainInfo();
+    if (!list.length) return;
+    clear(chainBox);
+    add(chainBox, h('p', { text: `チェーン店のメニュー（${list.length}店・${list.reduce((a, c) => a + c.count, 0)}品）：各社が公開している栄養成分を写した物。確認した日の値なので、メニューや量が変わると違ってくる` }),
+      h('ul', { class: 'dots small' }, list.map(c => h('li', {}, c.url ? ext(c.url, c.n) : c.n, `（${c.count}品・${c.date ? c.date.replace(/-/g, '/') + ' 確認' : ''}）`))));
+  }).catch(() => {});
   const about = h('section', { class: 'side-block about' }, h('h2', { text: 'このアプリについて' }),
     h('ul', { class: 'dots' },
       h('li', { text: '記録・体重・写真・目標は、このスマホの中だけに保存。サーバーには送らない（ログインもない）' }),
-      h('li', { text: 'インターネットを使うのは、アプリ本体の読み込みと、写真判定のAIデータの初回ダウンロード（Hugging Face から）だけ' }),
+      h('li', { text: 'インターネットを使うのは、アプリ本体と食品データの読み込み、写真判定のAIデータの初回ダウンロード（Hugging Face から）だけ。検索した言葉やバーコードはどこにも送らない（データを丸ごとスマホに読み込んで、スマホの中で探している）' }),
       h('li', { text: '写真は保存する時に小さくして、位置情報などの付加情報を消している' })),
     h('h3', { text: '出典' }),
     h('p', { class: 'note', text: '食品の成分：' + (foods.cite() || '日本食品標準成分表（八訂）増補2023年から引用') + '（文部科学省）。料理・コンビニの値は成分表などをもとにした目安で、店や作り方で変わる' }),
+    h('p', { class: 'note' }, '商品（バーコード）：Contains data from ', ext('https://world.openfoodfacts.org/', 'Open Food Facts'), ', available under the ', ext('https://opendatacommons.org/licenses/odbl/1-0/', 'Open Database License'), '。みんなで入力しているデータなので、まちがいもある'),
+    chainBox,
     h('p', { class: 'note', text: '運動のメッツ：国立健康・栄養研究所「改訂版 身体活動のメッツ（METs）表」を参考にした目安。基礎代謝：国立健康・栄養研究所の式' }),
     h('h3', { text: '使っているもの' }),
     h('ul', { class: 'dots small' },
       h('li', {}, 'Transformers.js（Apache-2.0）', ' ', h('a', { href: 'vendor/transformers/transformers.LICENSE.txt', text: 'ライセンス' })),
       h('li', {}, 'ONNX Runtime Web（MIT）', ' ', h('a', { href: 'vendor/transformers/ONNXRUNTIME.LICENSE.txt', text: 'ライセンス' })),
       h('li', { text: 'Google SigLIP base patch16-224（Apache-2.0）：写真判定のAI。Hugging Face の Xenova/siglip-base-patch16-224 から各スマホでダウンロード' }),
+      h('li', {}, 'zxing-wasm（MIT）・zxing-cpp（Apache-2.0）：バーコードの読み取り', ' ', h('a', { href: 'vendor/zxing/zxing-wasm.LICENSE.txt', text: 'ライセンス' }), ' ', h('a', { href: 'vendor/zxing/NOTICE.txt', text: 'お知らせ' })),
       h('li', {}, 'Zen Maru Gothic（SIL Open Font License 1.1）', ' ', h('a', { href: 'fonts/OFL-zen-maru-gothic.txt', text: 'ライセンス' }))),
     h('p', { class: 'note', text: 'このアプリの計算は目安で、医療のアドバイスではない。体調が気になる時はお医者さんに相談してね。バージョン ' + VERSION }));
 

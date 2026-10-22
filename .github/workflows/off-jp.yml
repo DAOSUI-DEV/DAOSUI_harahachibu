@@ -1,0 +1,48 @@
+# Open Food Facts の全データから「日本で売られている食品」だけを取り出して data/off-jp.json を作り直す。
+# 毎月1日（日本時間 12:17）と、このファイルか tools/off_jp.py を変えた時、または手動で動く。
+name: Open Food Facts（日本の食品）を更新
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 3 1 * *'
+  push:
+    branches: [main]
+    paths: ['tools/off_jp.py', '.github/workflows/off-jp.yml']
+permissions:
+  contents: write
+  pages: write
+concurrency:
+  group: off-jp
+  cancel-in-progress: false
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: 日本の食品を取り出す
+        run: |
+          set -euo pipefail
+          curl -sSL --retry 5 --retry-delay 30 https://static.openfoodfacts.org/data/en.openfoodfacts.org.products.csv.gz \
+            | gzip -dc | python3 tools/off_jp.py > /tmp/off-jp.json
+          python3 - <<'PY'
+          import json, os
+          d = json.load(open('/tmp/off-jp.json'))
+          n = len(d['items'])
+          print('items', n, 'bytes', os.path.getsize('/tmp/off-jp.json'))
+          assert n >= 100, '少なすぎる。取り出しに失敗した？'
+          PY
+          mv /tmp/off-jp.json data/off-jp.json
+      - name: 変わっていたらコミット
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/off-jp.json
+          if git diff --cached --quiet; then echo "変更なし"; exit 0; fi
+          git commit -m "Open Food Facts（日本の食品）を更新"
+          git pull --rebase origin main
+          git push origin HEAD:main
+      - name: Pages を作り直す
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X POST "repos/${{ github.repository }}/pages/builds" || echo "Pages の作り直しを頼めなかった（push で作り直されるはず）"
